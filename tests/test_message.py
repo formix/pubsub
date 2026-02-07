@@ -23,7 +23,6 @@ class TestMessage(unittest.TestCase):
     def test_message_id_uniqueness(self):
         """Test that message IDs are unique."""
         message1 = Message(topic="test", content=b"data1")
-        #time.sleep(0.001)  # Small delay to ensure different timestamps
         message2 = Message(topic="test", content=b"data2")
         
         assert message1.id != message2.id
