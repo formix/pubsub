@@ -35,8 +35,8 @@ def publish(topic: str, data: bytes, headers: Optional[dict] = None) -> int:
     message = Message(topic=topic, data=data, headers=headers)
     tmp_dir = PUBSUB_BASE_DIR / "tmp"
     tmp_dir.mkdir(exist_ok=True)  # Ensure temporary directory exists
-    original_message_file = tmp_dir / f"{message.id}"
-    with open(original_message_file, 'wb') as msg_file:
+    message_temp_file = tmp_dir / f"{message.id}"
+    with open(message_temp_file, 'wb') as msg_file:
         message.write(msg_file)
     
     publication_count = 0
@@ -48,14 +48,14 @@ def publish(topic: str, data: bytes, headers: Optional[dict] = None) -> int:
             continue
         try:
             message_file_path = channel_dir / str(message.id)
-            os.link(str(original_message_file), str(message_file_path))
+            os.link(str(message_temp_file), str(message_file_path))
             with os.fdopen(os.open(str(queue_path), os.O_WRONLY | os.O_NONBLOCK), 'wb') as queue_file:
                 queue_file.write(struct.pack('!Q', message.id))
                 publication_count += 1
         except (OSError, BrokenPipeError) as e:
             logging.warning(f"Failed to publish message {message.id} to {queue_path}: {e}")
     
-    original_message_file.unlink()
+    message_temp_file.unlink()
     
     return publication_count
     
