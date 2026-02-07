@@ -86,7 +86,11 @@ class Channel:
                 
         except OSError as e:
             raise RuntimeError(f"Failed to create channel directory or FIFO: {e}") from e
-        
+    
+    @property
+    def is_open(self) -> bool:
+        """Check if the channel's FIFO is currently open for reading."""
+        return self._fp != -1
     
     def open(self) -> None:
         """

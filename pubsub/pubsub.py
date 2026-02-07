@@ -76,7 +76,11 @@ def fetch(channel: Channel) -> Optional[Message]:
         
     Raises:
         ValueError: If message format is invalid
+        RuntimeError: If channel is not open for reading
     """
+    if not channel.is_open:
+        raise RuntimeError("Channel must be open to fetch messages")
+
     # Read message ID from queue (non-blocking)
     try:
         id_bytes = os.read(channel._fp, 8)
@@ -117,9 +121,13 @@ def subscribe(channel: Channel, callback: Callable[[Message], None], timeout_sec
         Number of messages processed
         
     Raises:
+        RuntimeError: If channel is not open for reading
         ValueError: If timeout_seconds is negative
-        RuntimeError: If unable to open channel for reading
+
     """
+    if not channel.is_open:
+        raise RuntimeError("Channel must be open to subscribe")
+    
     if timeout_seconds < 0:
         raise ValueError("timeout_seconds must be non-negative")
     
