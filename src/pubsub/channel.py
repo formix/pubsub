@@ -47,6 +47,7 @@ class Channel:
         """Generate a random 12-character string."""
         return ''.join(random.choices(string.ascii_letters + string.digits, k=12))
     
+    
     @staticmethod
     def _validate_topic(topic: str) -> None:
         """
@@ -67,6 +68,7 @@ class Channel:
         if not re.match(r'^[a-zA-Z0-9+=.-]+$', topic):
             invalid_chars = set(topic) - set('abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789+=.-')
             raise ValueError(f"Topic '{topic}' contains invalid characters: {sorted(invalid_chars)}. Only [a-zA-Z0-9+=.-] are allowed.")
+        
     
     def _create_channel(self) -> None:
         """Create the channel directory and FIFO queue."""
@@ -82,13 +84,21 @@ class Channel:
                 
         except OSError as e:
             raise RuntimeError(f"Failed to create channel directory or FIFO: {e}") from e
+        
     
     def cleanup(self) -> None:
-        """Clean up the channel by removing the FIFO and directory."""
+        """
+        Clean up the channel by removing unconsumed messages, the FIFO, and directory.
+        
+        This ensures that any undelivered messages are properly deleted when the
+        channel is disposed, preventing resource leaks.
+        """
         try:
-            # Remove the FIFO
-            if self.queue_path.exists():
-                self.queue_path.unlink()
+            # Remove the fifo queue and all unconsumed message files in the directory
+            if self.directory_path.exists() and self.directory_path.is_dir():
+                for item in self.directory_path.iterdir():
+                    if item.is_file():
+                        item.unlink()
             
             # Remove the directory
             if self.directory_path.exists():
@@ -97,6 +107,7 @@ class Channel:
         except OSError as e:
             # Log but don't raise - cleanup is best effort
             print(f"Warning: Failed to cleanup channel {self.directory_name}: {e}")
+
     
     def open_queue_for_reading(self) -> int:
         """
@@ -112,6 +123,7 @@ class Channel:
             return os.open(str(self.queue_path), os.O_RDONLY | os.O_NONBLOCK)
         except OSError as e:
             raise OSError(f"Failed to open queue for reading: {e}") from e
+        
     
     def __str__(self) -> str:
         return f"Channel(topic='{self.topic}', directory='{self.directory_name}')"
