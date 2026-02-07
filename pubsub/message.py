@@ -1,6 +1,5 @@
 """Message class for pubsub library."""
 
-from datetime import datetime, timezone
 from typing import BinaryIO
 import struct
 import io

@@ -142,7 +142,8 @@ class Channel:
         
         for item in [i for i in pubsub_path.iterdir() if i.is_dir()]:
             parts = item.name.split('_')
-            if len(parts) < 3: continue
+            if len(parts) < 3: 
+                continue
             pid = int(parts[-1])
             if is_process_running(pid):
                 channels.append(item)
@@ -167,7 +168,8 @@ class Channel:
         
         for item in [i for i in pubsub_path.iterdir() if i.is_dir()]:
             parts = item.name.split('_')
-            if len(parts) < 3: continue
+            if len(parts) < 3: 
+                continue
             pid = int(parts[-1])
             if not is_process_running(pid):
                 channels.append(item)
