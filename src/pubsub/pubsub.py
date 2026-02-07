@@ -11,10 +11,10 @@ from pathlib import Path
 
 from .message import Message
 from .channel import Channel
-from .abstractions import get_base_dir
+from .abstractions import get_base_dir, is_process_running
 
 
-def publish(topic: str, data: bytes, headers: Optional[dict] = None) -> int:
+def publish(topic: str, data: bytes) -> int:
     """
     Publish a message to a topic.
     
@@ -24,7 +24,6 @@ def publish(topic: str, data: bytes, headers: Optional[dict] = None) -> int:
     Args:
         topic: The topic to publish to
         data: The message payload as bytes
-        headers: Optional metadata headers
         
     Returns:
         The number of messages sent
@@ -33,7 +32,7 @@ def publish(topic: str, data: bytes, headers: Optional[dict] = None) -> int:
         RuntimeError: If unable to publish to any matching channels
     """
 
-    message = Message(topic=topic, data=data, headers=headers)
+    message = Message(topic=topic, content=data)
     tmp_dir = get_base_dir() / "tmp"
     tmp_dir.mkdir(exist_ok=True)  # Ensure temporary directory exists
     message_temp_file = tmp_dir / f"{message.id}"
@@ -41,7 +40,7 @@ def publish(topic: str, data: bytes, headers: Optional[dict] = None) -> int:
         message.write(msg_file)
     
     publication_count = 0
-    matching_channels = _find_matching_channels_regex(topic)
+    matching_channels = Channel.matching_active_paths(topic)
     for channel_dir in matching_channels:
         queue_path = channel_dir / "queue"
         if not queue_path.exists():
@@ -78,38 +77,27 @@ def fetch(channel: Channel) -> Optional[Message]:
     Raises:
         ValueError: If message format is invalid
     """
-    try:
-        # Open queue for reading (non-blocking)
-        with os.fdopen(channel.open_queue_for_reading(), 'rb') as queue_file:
-            # Read exactly 8 bytes (id size)
-            id_bytes = queue_file.read(8)
+    # Open queue for reading (non-blocking)
+    with os.fdopen(channel.open_queue_for_reading(), 'rb') as queue_file:
+        id_bytes = queue_file.read(8)
+        if not id_bytes or len(id_bytes) != 8:
+            # nonblocking read with no data available or incomplete ID
+            return None
+
+        id = struct.unpack('!Q', id_bytes)[0]
+        message_file_path = channel.directory_path / str(id)
+        if not message_file_path.exists():
+            return None
             
-            # Check if queue is empty
-            if not id_bytes or len(id_bytes) != 8:
-                return None
+        with open(message_file_path, 'rb') as msg_file:
+            message = Message.read(msg_file)
             
-            # Convert bytes to id
-            id = struct.unpack('!Q', id_bytes)[0]
-            
-            # Load message from file
-            message_file_path = channel.directory_path / str(id)
-            if not message_file_path.exists():
-                # Message file doesn't exist (maybe already consumed)
-                return None
-                
-            with open(message_file_path, 'rb') as msg_file:
-                message = Message.read(msg_file)
-                
-            # Clean up the message file after reading
-            message_file_path.unlink()
-            return message
-                
-    except (OSError, BlockingIOError):
-        # No message available or queue not ready
-        return None
+        message_file_path.unlink()
+        
+        return message
 
 
-def subscribe(channel: Channel, callback: Callable[[Message], None], timeout_seconds: float = 0) -> int:
+def subscribe(channel: Channel, callback: Callable[[Message], None], timeout_seconds = 0) -> int:
     """
     Subscribe to a channel and call a function for each received message.
     
@@ -134,172 +122,15 @@ def subscribe(channel: Channel, callback: Callable[[Message], None], timeout_sec
     message_count = 0
     start_time = time.time()
     listen_indefinitely = (timeout_seconds == 0)
-    
-    try:
-        # Open the queue for reading
-        queue_fd = channel.open_queue_for_reading()
-        
-        with os.fdopen(queue_fd, 'rb') as queue_file:
-            while True:
-                if not listen_indefinitely:
-                    # Calculate remaining time
-                    elapsed = time.time() - start_time
-                    remaining_time = timeout_seconds - elapsed
-                    
-                    if remaining_time <= 0:
-                        break
-                    
-                    select_timeout = min(remaining_time, 1.0)
-                else:
-                    # Listen indefinitely - use 1 second timeout for select to allow interruption
-                    select_timeout = 1.0
-                
-                # Use select to wait for data with timeout
-                ready, _, _ = select.select([queue_file], [], [], select_timeout)
-                
-                if ready:
-                    try:
-                        message = fetch(channel)
-                        if message:
-                            callback(message)
-                            message_count += 1
-                    except (ValueError, OSError):
-                        # Skip invalid messages or temporary read errors
-                        continue
-                else:
-                    # No data available, continue polling (unless timed out)
-                    if not listen_indefinitely:
-                        continue
-    
-    except OSError as e:
-        raise RuntimeError(f"Failed to subscribe to channel: {e}") from e
+    while listen_indefinitely or (time.time() - start_time < timeout_seconds):
+        message = fetch(channel)
+        if message:
+            try:
+                callback(message)
+            except Exception as e:
+                logging.warning(f"Error processing message {message}: {e}")
+            message_count += 1
+        time.sleep(0.01)  # Sleep briefly to avoid busy waiting
     
     return message_count
 
-
-def _find_matching_channels_regex(topic: str) -> List[Path]:
-    """
-    Find all channel directories in the pubsub base directory that match the given topic using regex.
-    
-    Converts wildcards to regex patterns:
-    - '=' becomes '[a-zA-Z0-9-]' (single word wildcard)
-    - '+' becomes '[a-zA-Z0-9.-]*' (multiple words wildcard)
-    
-    Args:
-        topic: The topic to match against
-        
-    Returns:
-        List of Path objects for matching channel directories
-    """
-    matching_channels = []
-    pubsub_path = get_base_dir()
-    
-    if not pubsub_path.exists():
-        return matching_channels
-    
-    # Look for channel directories (format: topic-randomid-pid)
-    for item in pubsub_path.iterdir():
-        if not item.is_dir():
-            continue
-            
-        # Extract the topic part from directory name
-        dir_name = item.name
-        # Split by '_' and take all but last two parts (randomid and pid)
-        parts = dir_name.split('_')
-        if len(parts) < 3:
-            continue
-            
-        # Reconstruct channel topic (everything except last two parts)
-        channel_topic = '_'.join(parts[:-2])
-        
-        # Convert wildcards to regex pattern
-        regex_pattern = channel_topic.replace('=', '[a-zA-Z0-9-]').replace('+', '[a-zA-Z0-9.-]*')
-        
-        # Check if the published topic matches the channel's regex pattern
-        if re.fullmatch(regex_pattern, topic):
-            matching_channels.append(item)
-    
-    return matching_channels
-
-
-def list_active_channels() -> List[str]:
-    """
-    List all active channel topics in the pubsub base directory.
-    
-    Only includes channels where the associated process is still running.
-    
-    Returns:
-        List of active channel topic names
-    """
-    channels = []
-    pubsub_path = get_base_dir()
-    
-    if not pubsub_path.exists():
-        return channels
-    
-    for item in pubsub_path.iterdir():
-        if not item.is_dir():
-            continue
-            
-        dir_name = item.name
-        parts = dir_name.split('_')
-        if len(parts) < 3:
-            continue
-            
-        # Extract topic and PID
-        topic = '_'.join(parts[:-2])
-        pid = parts[-1]
-        
-        # Check if process is still running
-        try:
-            if not os.path.exists(f"/proc/{pid}"):
-                continue
-            if topic not in channels:
-                channels.append(topic)
-        except (ValueError, OSError):
-            # Invalid PID format or permission error, skip
-            continue
-    
-    return sorted(channels)
-
-
-def list_inactive_channels() -> List[str]:
-    """
-    List all inactive channel topics in the pubsub base directory.
-    
-    Includes channels where the associated process is no longer running.
-    
-    Returns:
-        List of inactive channel topic names
-    """
-    channels = []
-    pubsub_path = get_base_dir()
-    
-    if not pubsub_path.exists():
-        return channels
-    
-    for item in pubsub_path.iterdir():
-        if not item.is_dir():
-            continue
-            
-        dir_name = item.name
-        parts = dir_name.split('_')
-        if len(parts) < 3:
-            continue
-            
-        # Extract topic and PID
-        topic = '_'.join(parts[:-2])
-        pid = parts[-1]
-        
-        # Check if process is no longer running
-        try:
-            if os.path.exists(f"/proc/{pid}"):
-                continue
-            if topic not in channels:
-                channels.append(topic)
-        except (ValueError, OSError):
-            # Invalid PID format or permission error, consider inactive
-            if topic not in channels:
-                channels.append(topic)
-    
-    return sorted(channels)

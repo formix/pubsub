@@ -6,8 +6,9 @@ import random
 import string
 import re
 from pathlib import Path
+from typing import List
 
-from .abstractions import get_base_dir
+from .abstractions import get_base_dir, is_process_running
 
 
 class Channel:
@@ -123,6 +124,82 @@ class Channel:
             return os.open(str(self.queue_path), os.O_RDONLY | os.O_NONBLOCK)
         except OSError as e:
             raise OSError(f"Failed to open queue for reading: {e}") from e
+        
+
+    @staticmethod
+    def active_paths() -> List[Path]:
+        """
+        List all active channel paths in the pubsub base directory.
+        
+        Only includes channels where the associated process is still running.
+        
+        Returns:
+            List of active channel paths
+        """
+        channels = []
+        pubsub_path = get_base_dir()
+        if not pubsub_path.exists():
+            return channels
+        
+        for item in [i for i in pubsub_path.iterdir() if i.is_dir()]:
+            parts = item.name.split('_')
+            if len(parts) < 3: continue
+            pid = int(parts[-1])
+            if is_process_running(pid):
+                channels.append(item)
+        
+        return sorted(channels)
+
+
+    @staticmethod
+    def inactive_paths() -> List[Path]:
+        """
+        List all inactive channel paths in the pubsub base directory.
+        
+        Includes channels where the associated process is no longer running.
+        
+        Returns:
+            List of inactive channel paths
+        """
+        channels = []
+        pubsub_path = get_base_dir()
+        if not pubsub_path.exists():
+            return channels
+        
+        for item in [i for i in pubsub_path.iterdir() if i.is_dir()]:
+            parts = item.name.split('_')
+            if len(parts) < 3: continue
+            pid = int(parts[-1])
+            if not is_process_running(pid):
+                channels.append(item)
+        
+        return sorted(channels)
+    
+
+    @staticmethod
+    def matching_active_paths(topic: str) -> List[Path]:
+        """
+        Find all channel directories in the pubsub base directory that match the given topic using regex.
+        
+        Converts wildcards to regex patterns:
+        - '=' becomes '[a-zA-Z0-9-]' (single word wildcard)
+        - '+' becomes '[a-zA-Z0-9.-]*' (multiple words wildcard)
+        
+        Args:
+            topic: The topic to match against
+            
+        Returns:
+            List of Path objects for matching channel directories
+        """
+        matching_channels = []
+        for item in Channel.active_paths():
+            parts = item.name.split('_')
+            topic_pattern = parts[0]
+            regex_pattern = topic_pattern.replace('=', '[a-zA-Z0-9-]').replace('+', '[a-zA-Z0-9.-]*')
+            if re.fullmatch(regex_pattern, topic):
+                matching_channels.append(item)
+        return matching_channels
+
         
     
     def __str__(self) -> str:

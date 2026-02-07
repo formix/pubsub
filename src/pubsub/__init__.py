@@ -18,5 +18,5 @@ __all__ = [
     "Channel",
     "publish",
     "fetch", 
-    "subscribe",
+    "subscribe"
 ]
