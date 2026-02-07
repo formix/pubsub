@@ -2,6 +2,7 @@
 
 import unittest
 import time
+from datetime import datetime, timezone
 from pubsub.message import Message
 
 
@@ -17,8 +18,7 @@ class TestMessage(unittest.TestCase):
         
         assert message.topic == topic
         assert message.data == data
-        assert message.id is not None
-        assert isinstance(message.id, int)
+        assert message.id > 0
         assert message.headers == {}
     
     def test_message_with_headers(self):
@@ -35,7 +35,7 @@ class TestMessage(unittest.TestCase):
         
         assert message.topic == topic
         assert message.data == data
-        assert message.id is not None
+        assert message.id > 0
         assert message.headers == headers
     
     def test_message_id_uniqueness(self):
@@ -126,3 +126,32 @@ class TestMessage(unittest.TestCase):
         assert "Message" in repr_str
         assert "test.topic" in repr_str
         assert "data_length=13" in repr_str
+    
+    def test_timestamp(self):
+        """Test message timestamp property."""
+        # Create message and capture creation time
+        before = time.time()
+        message = Message(topic="test", data=b"data")
+        after = time.time()
+        
+        # Get timestamp from property
+        timestamp = message.timestamp
+        
+        # Verify it's a datetime object
+        assert isinstance(timestamp, datetime)
+        assert timestamp.tzinfo == timezone.utc
+        
+        # Verify timestamp is within the expected range
+        timestamp_seconds = timestamp.timestamp()
+        assert before <= timestamp_seconds <= after
+        
+        # Verify timestamp matches the id
+        expected_timestamp = datetime.fromtimestamp(message.id / 1_000_000, tz=timezone.utc)
+        assert timestamp == expected_timestamp
+        
+        # Test that timestamp is preserved through serialization
+        serialized = message.to_bytes()
+        deserialized = Message.from_bytes(serialized)
+        
+        assert deserialized.timestamp == message.timestamp
+        assert deserialized.id == message.id
