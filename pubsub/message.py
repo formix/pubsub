@@ -53,8 +53,8 @@ class Message:
         Returns:
             A 64-bit integer ID
         """
-        time_micros = int(time.time() * 1_000_000)
-        high_bits = (time_micros >> 16) << 16
+        time_micro = int(time.time() * 1_000_000)
+        high_bits = time_micro << 16  # Keep all but the last 16 bits
         random_bits = random.randint(0, 0xFFFF)
         return high_bits | random_bits
 
