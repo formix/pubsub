@@ -1,7 +1,7 @@
 """Directory utilities for pubsub library."""
 
 import os
-import platform
+import tempfile
 from pathlib import Path
 
 
@@ -14,10 +14,8 @@ def get_base_dir() -> Path:
     Get the base directory for pubsub storage that works across platforms.
     
     First checks for the PUBSUB_BASE_DIR environment variable. If not set,
-    selects the most appropriate directory based on the operating system:
-    - Windows: %TEMP%/pubsub (user's temp directory)
-    - Unix-like (Linux/macOS/BSD): /dev/shm/pubsub if available (shared memory),
-      otherwise /tmp/pubsub
+    uses the system's temporary directory with a 'pubsub' subdirectory.
+    On Unix-like systems, prefers /dev/shm if available for better performance.
     
     The result is cached after the first call for performance.
     
@@ -33,18 +31,12 @@ def get_base_dir() -> Path:
         _base_dir_cache = Path(env_dir)
         return _base_dir_cache
     
-    system = platform.system()
-    if system == "Windows":
-        temp_dir = os.environ.get("TEMP", os.environ.get("TMP", "C:\\Temp"))
-        base_dir = Path(temp_dir) / "pubsub"
+    shm_path = Path("/dev/shm")
+    if shm_path.exists() and shm_path.is_dir():
+        temp_dir = shm_path
     else:
-        # Unix-like systems (Linux, macOS, BSD, etc.)
-        # Prefer shared memory for best performance, if available
-        shm_path = Path("/dev/shm")
-        if shm_path.exists() and shm_path.is_dir():
-            base_dir = shm_path / "pubsub"
-        else:
-            base_dir = Path("/tmp/pubsub")
+        temp_dir = Path(tempfile.gettempdir())
     
-    _base_dir_cache = base_dir
-    return base_dir
+    # Append pubsub subdirectory
+    _base_dir_cache = temp_dir / "pubsub"
+    return _base_dir_cache
