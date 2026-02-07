@@ -23,7 +23,7 @@ def publish(topic: str, data: bytes) -> int:
         data: The message payload as bytes
         
     Returns:
-        The number of messages sent
+        The number of times the messages was published in a channel
         
     Raises:
         RuntimeError: If unable to publish to any matching channels

@@ -98,7 +98,9 @@ class Channel:
             # Remove the fifo queue and all unconsumed message files in the directory
             if self.directory_path.exists() and self.directory_path.is_dir():
                 for item in self.directory_path.iterdir():
-                    if item.is_file():
+                    # Use unlink() for both regular files and FIFOs
+                    # is_file() returns False for FIFOs, so check exists() instead
+                    if item.exists():
                         item.unlink()
             
             # Remove the directory
@@ -106,8 +108,7 @@ class Channel:
                 self.directory_path.rmdir()
                 
         except OSError as e:
-            # Log but don't raise - cleanup is best effort
-            print(f"Warning: Failed to cleanup channel {self.directory_name}: {e}")
+            raise RuntimeError(f"Failed to cleanup channel {self.directory_name}: {e}") from e
 
     
     def open_queue_for_reading(self) -> int:

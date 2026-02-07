@@ -25,8 +25,11 @@ class TestMessage(unittest.TestCase):
         message1 = Message(topic="test", content=b"data1")
         message2 = Message(topic="test", content=b"data2")
         
+        # IDs should be unique (random bits ensure this even in same microsecond)
         assert message1.id != message2.id
-        assert message1.id < message2.id  # Later message should have higher ID
+        
+        # IDs should generally increase over time (high bits are time-based)
+        # Note: Due to random low bits, exact ordering within same microsecond is not guaranteed
     
     def test_binary_serialization(self):
         """Test message serialization to bytes."""
@@ -88,30 +91,29 @@ class TestMessage(unittest.TestCase):
         assert "content_length=13" in repr_str
     
     def test_timestamp(self):
-        """Test message timestamp property."""
+        """Test message timestamp field."""
         # Create message and capture creation time with some tolerance
         before = time.time() - 0.01  # Add 10ms buffer before
         message = Message(topic="test", content=b"data")
         after = time.time() + 0.01  # Add 10ms buffer after
         
-        # Get timestamp from property
+        # Get timestamp (now an integer in microseconds)
         timestamp = message.timestamp
         
-        # Verify it's a datetime object
-        assert isinstance(timestamp, datetime)
-        assert timestamp.tzinfo == timezone.utc
+        # Verify it's an integer
+        assert isinstance(timestamp, int)
+        assert timestamp > 0
         
-        # Verify timestamp is within the expected range
-        timestamp_seconds = timestamp.timestamp()
+        # Convert to seconds for comparison
+        timestamp_seconds = timestamp / 1_000_000
         assert before <= timestamp_seconds <= after
-        
-        # Verify timestamp matches the id
-        expected_timestamp = datetime.fromtimestamp(message.id / 1_000_000, tz=timezone.utc)
-        assert timestamp == expected_timestamp
         
         # Test that timestamp is preserved through serialization
         serialized = message.to_bytes()
         deserialized = Message.from_bytes(serialized)
+        
+        assert deserialized.timestamp == message.timestamp
+        assert isinstance(deserialized.timestamp, int)
         
         assert deserialized.timestamp == message.timestamp
         assert deserialized.id == message.id

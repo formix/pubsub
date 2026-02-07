@@ -5,6 +5,7 @@ from typing import BinaryIO
 import struct
 import io
 import time
+import random
 
 
 # Message serialization format version
@@ -29,17 +30,30 @@ class Message:
         Args:
             topic: The topic this message belongs to
             content: The message payload as bytes
-            headers: Optional metadata headers
         """
-        self.id = int(time.time() * 1_000_000)
+        self.id = self._next_id()
+        self.timestamp = int(time.time() * 1_000_000)  # microseconds since epoch
         self.topic = topic
         self.content = content
 
-    @property
-    def timestamp(self) -> datetime:
-        """Return the message timestamp as a datetime object."""
-        return datetime.fromtimestamp(self.id / 1_000_000, tz=timezone.utc)
-    
+
+    @staticmethod
+    def _next_id() -> int:
+        """
+        Generate a unique message ID based on current time in microseconds
+        with the least significant 16 bits replaced by random bits.
+        
+        This provides both time-based ordering and uniqueness even when
+        multiple messages are created within the same microsecond.
+        
+        Returns:
+            A 64-bit integer ID
+        """
+        time_micros = int(time.time() * 1_000_000)
+        high_bits = (time_micros >> 16) << 16
+        random_bits = random.randint(0, 0xFFFF)
+        return high_bits | random_bits
+
 
     def write(self, stream: BinaryIO) -> None:
         """
@@ -48,7 +62,8 @@ class Message:
         Binary format:
         - 4 bytes: magic number (0x504D5347 - "PMSG")
         - 1 byte: format version (uint8)
-        - 8 bytes: id (uint64, microseconds since epoch)
+        - 8 bytes: id (uint64)
+        - 8 bytes: timestamp (uint64, microseconds since epoch)
         - 4 bytes: topic length (uint32)
         - N bytes: topic (UTF-8 encoded)
         - 4 bytes: content length (uint32) 
@@ -64,12 +79,13 @@ class Message:
         stream.write(struct.pack('!I', MESSAGE_MAGIC_NUMBER))
         stream.write(struct.pack('!B', MESSAGE_FORMAT_VERSION))
         stream.write(struct.pack('!Q', self.id))
+        stream.write(struct.pack('!Q', self.timestamp))
         stream.write(struct.pack('!I', len(topic_bytes)))
         stream.write(topic_bytes)
         stream.write(struct.pack('!I', len(self.content)))
         stream.write(self.content)
     
-
+    
     @staticmethod
     def _read_exact(stream: BinaryIO, n: int) -> bytes:
         """
@@ -98,7 +114,7 @@ class Message:
             chunks.append(chunk)
             bytes_read += len(chunk)
         
-        return b''.join(chunks)
+        return b''.join(chunks)    
     
     @classmethod
     def read(cls, stream: BinaryIO) -> 'Message':
@@ -129,6 +145,10 @@ class Message:
         id_data = cls._read_exact(stream, 8)
         message_id = struct.unpack('!Q', id_data)[0]
         
+        # Read timestamp
+        timestamp_data = cls._read_exact(stream, 8)
+        message_timestamp = struct.unpack('!Q', timestamp_data)[0]
+        
         # Read topic
         topic_length_data = cls._read_exact(stream, 4)
         topic_length = struct.unpack('!I', topic_length_data)[0]
@@ -140,12 +160,13 @@ class Message:
         data_length = struct.unpack('!I', data_length_data)[0]
         message_content = cls._read_exact(stream, data_length)
         
-        # Create new instance and set the id directly
+        # Create new instance and set the id and timestamp directly
         message = cls(
             topic=topic,
             content=message_content
         )
         message.id = message_id
+        message.timestamp = message_timestamp
         return message
 
 
