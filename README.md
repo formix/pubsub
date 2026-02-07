@@ -2,6 +2,8 @@
 
 A lightweight, file-system based publish-subscribe messaging system for Python using FIFO (named pipes).
 
+The version 0.9.0 was tested on linux thouroughly, need more testing on Windows, MacOs and BSD.
+
 ## Features
 
 - **Topic-based routing** with wildcard support (`=` for single word, `+` for multiple words)
@@ -14,7 +16,7 @@ A lightweight, file-system based publish-subscribe messaging system for Python u
 ## Installation
 
 ```bash
-pip install -e .
+pip install formix-pubsub
 ```
 
 ## Quick Start

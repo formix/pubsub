@@ -75,15 +75,10 @@ class Channel:
     def _create_channel(self) -> None:
         """Create the channel directory and FIFO queue."""
         try:
-            # Create the directory in the pubsub base directory
             self.directory_path.mkdir(parents=True, exist_ok=True)
-            
-            # Create the FIFO queue if it doesn't exist
             if not self.queue_path.exists():
                 os.mkfifo(str(self.queue_path))
-                # Set permissions for the FIFO (readable/writable by owner and group)
                 os.chmod(str(self.queue_path), stat.S_IRUSR | stat.S_IWUSR | stat.S_IRGRP | stat.S_IWGRP)
-                
         except OSError as e:
             raise RuntimeError(f"Failed to create channel directory or FIFO: {e}") from e
     
@@ -121,23 +116,13 @@ class Channel:
                 self._fp = -1
             except OSError as e:
                 raise RuntimeError(f"Failed to close channel file descriptor {self.directory_name}: {e}") from e
-
-        # Clean up the directory regardless of whether channel was opened
-        try:
-            # Remove the fifo queue and all unconsumed message files in the directory
-            if self.directory_path.exists() and self.directory_path.is_dir():
-                for item in self.directory_path.iterdir():
-                    # Use unlink() for both regular files and FIFOs
-                    # is_file() returns False for FIFOs, so check exists() instead
-                    if item.exists():
+            finally:
+                try:
+                    for item in self.directory_path.iterdir():
                         item.unlink()
-            
-            # Remove the directory
-            if self.directory_path.exists():
-                self.directory_path.rmdir()
-                
-        except OSError as e:
-            raise RuntimeError(f"Failed to cleanup channel {self.directory_name}: {e}") from e
+                    self.directory_path.rmdir()
+                except OSError as e:
+                    raise RuntimeError(f"Failed to cleanup channel {self.directory_name}: {e}") from e
 
 
     @staticmethod

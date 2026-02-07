@@ -3,29 +3,29 @@ requires = ["setuptools>=61.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "pubsub"
-version = "0.1.0"
+name = "formix-pubsub"
+version = "0.9.0"
 description = "A Python publish-subscribe messaging library"
 readme = "README.md"
-requires-python = ">=3.8"
+requires-python = ">=3.10"
 authors = [
-    {name = "Your Name", email = "your.email@example.com"}
+    {name = "formix", email = "formix@users.noreply.github.com"}
 ]
 maintainers = [
-    {name = "Your Name", email = "your.email@example.com"}
+    {name = "formix", email = "formix@users.noreply.github.com"}
 ]
-license = {text = "MIT"}
+license = "MIT"
+license-files = ["LICENSE"]
 keywords = ["pubsub", "messaging", "publish", "subscribe", "events"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
-    "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.8",
-    "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
     "Topic :: Software Development :: Libraries :: Python Modules",
     "Topic :: Communications",
 ]
@@ -46,20 +46,18 @@ docs = [
 ]
 
 [project.urls]
-"Homepage" = "https://github.com/yourusername/pubsub"
-"Bug Tracker" = "https://github.com/yourusername/pubsub/issues"
-"Documentation" = "https://pubsub.readthedocs.io/"
-"Source Code" = "https://github.com/yourusername/pubsub"
+"Homepage" = "https://github.com/formix/pubsub"
+"Bug Tracker" = "https://github.com/formix/pubsub/issues"
+"Documentation" = "https://github.com/formix/pubsub"
+"Source Code" = "https://github.com/formix/pubsub"
 
 [tool.setuptools.packages.find]
-where = ["src"]
-
-[tool.setuptools.package-dir]
-"" = "src"
+where = ["."]
+include = ["pubsub*"]
 
 [tool.black]
 line-length = 88
-target-version = ['py38']
+target-version = ['py310']
 
 [tool.pytest.ini_options]
 minversion = "7.0"
@@ -70,13 +68,13 @@ testpaths = [
 python_files = ["test_*.py", "*_test.py"]
 
 [tool.mypy]
-python_version = "3.8"
+python_version = "3.10"
 warn_return_any = true
 warn_unused_configs = true
 disallow_untyped_defs = true
 
 [tool.coverage.run]
-source = ["src/pubsub"]
+source = ["pubsub"]
 
 [tool.coverage.report]
 show_missing = true

@@ -1,4 +1,4 @@
-"""Directory utilities for pubsub library."""
+"""Platform abstraction utilities for the pubsub library."""
 
 import os
 import sys
@@ -49,7 +49,7 @@ def is_process_running(pid: int) -> bool:
     
     Works across different operating systems:
     - Unix-like (Linux, macOS, BSD): Uses os.kill(pid, 0) to check existence
-    - Windows: Checks if the process directory exists in /proc or uses ctypes
+    - Windows: Uses ctypes to check for process handle availability
     
     Args:
         pid: The process ID to check
@@ -75,8 +75,7 @@ def is_process_running(pid: int) -> bool:
                 ctypes.windll.kernel32.CloseHandle(handle)
                 return True
             return False
-    except (OSError, ProcessLookupError, AttributeError):
+    except (OSError, ProcessLookupError):
         # OSError/ProcessLookupError: Process doesn't exist
-        # AttributeError: ctypes not available or other import issues
         return False
 
