@@ -10,14 +10,15 @@ from typing import Callable, Optional, List
 from pathlib import Path
 
 from .message import Message
-from .channel import Channel, PUBSUB_BASE_DIR
+from .channel import Channel
+from .abstractions import get_base_dir
 
 
 def publish(topic: str, data: bytes, headers: Optional[dict] = None) -> int:
     """
     Publish a message to a topic.
     
-    Lists all channel directories in /dev/shm/pubsub and matches against wildcard patterns
+    Lists all channel directories in the pubsub base directory and matches against wildcard patterns
     using regex conversion (= -> [a-zA-Z0-9-], + -> [a-zA-Z0-9.-]*).
     
     Args:
@@ -33,7 +34,7 @@ def publish(topic: str, data: bytes, headers: Optional[dict] = None) -> int:
     """
 
     message = Message(topic=topic, data=data, headers=headers)
-    tmp_dir = PUBSUB_BASE_DIR / "tmp"
+    tmp_dir = get_base_dir() / "tmp"
     tmp_dir.mkdir(exist_ok=True)  # Ensure temporary directory exists
     message_temp_file = tmp_dir / f"{message.id}"
     with open(message_temp_file, 'wb') as msg_file:
@@ -178,7 +179,7 @@ def subscribe(channel: Channel, callback: Callable[[Message], None], timeout_sec
 
 def _find_matching_channels_regex(topic: str) -> List[Path]:
     """
-    Find all channel directories in /dev/shm/pubsub that match the given topic using regex.
+    Find all channel directories in the pubsub base directory that match the given topic using regex.
     
     Converts wildcards to regex patterns:
     - '=' becomes '[a-zA-Z0-9-]' (single word wildcard)
@@ -191,7 +192,7 @@ def _find_matching_channels_regex(topic: str) -> List[Path]:
         List of Path objects for matching channel directories
     """
     matching_channels = []
-    pubsub_path = Path("/dev/shm/pubsub")
+    pubsub_path = get_base_dir()
     
     if not pubsub_path.exists():
         return matching_channels
@@ -223,7 +224,7 @@ def _find_matching_channels_regex(topic: str) -> List[Path]:
 
 def list_active_channels() -> List[str]:
     """
-    List all active channel topics in /dev/shm/pubsub.
+    List all active channel topics in the pubsub base directory.
     
     Only includes channels where the associated process is still running.
     
@@ -231,7 +232,7 @@ def list_active_channels() -> List[str]:
         List of active channel topic names
     """
     channels = []
-    pubsub_path = Path("/dev/shm/pubsub")
+    pubsub_path = get_base_dir()
     
     if not pubsub_path.exists():
         return channels
@@ -264,7 +265,7 @@ def list_active_channels() -> List[str]:
 
 def list_inactive_channels() -> List[str]:
     """
-    List all inactive channel topics in /dev/shm/pubsub.
+    List all inactive channel topics in the pubsub base directory.
     
     Includes channels where the associated process is no longer running.
     
@@ -272,7 +273,7 @@ def list_inactive_channels() -> List[str]:
         List of inactive channel topic names
     """
     channels = []
-    pubsub_path = Path("/dev/shm/pubsub")
+    pubsub_path = get_base_dir()
     
     if not pubsub_path.exists():
         return channels

@@ -7,15 +7,14 @@ import string
 import re
 from pathlib import Path
 
-
-PUBSUB_BASE_DIR = Path("/dev/shm/pubsub")
+from .abstractions import get_base_dir
 
 
 class Channel:
     """
     Represents a pubsub channel using shared memory filesystem and FIFO queues.
     
-    Creates a directory in /dev/shm/pubsub with format: {topic}_{random_12_chars}_{process_id}
+    Creates a directory in the pubsub base directory with format: {topic}_{random_12_chars}_{process_id}
     Contains a non-blocking FIFO named 'queue' for message passing.
     
     Topic format supports wildcards:
@@ -38,7 +37,7 @@ class Channel:
         self.process_id = os.getpid()
         self.random_id = self._generate_random_id()
         self.directory_name = f"{topic}_{self.random_id}_{self.process_id}"
-        self.directory_path = PUBSUB_BASE_DIR / self.directory_name
+        self.directory_path = get_base_dir() / self.directory_name
         self.queue_path = self.directory_path / "queue"
         
         # Create the channel directory and FIFO
@@ -72,7 +71,7 @@ class Channel:
     def _create_channel(self) -> None:
         """Create the channel directory and FIFO queue."""
         try:
-            # Create the directory in /dev/shm/pubsub
+            # Create the directory in the pubsub base directory
             self.directory_path.mkdir(parents=True, exist_ok=True)
             
             # Create the FIFO queue if it doesn't exist
