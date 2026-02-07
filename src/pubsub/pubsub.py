@@ -5,6 +5,7 @@ import time
 import select
 import re
 import logging
+import struct
 from typing import Callable, Optional, List
 from pathlib import Path
 
@@ -34,7 +35,7 @@ def publish(topic: str, data: bytes, headers: Optional[dict] = None) -> int:
     message = Message(topic=topic, data=data, headers=headers)
     tmp_dir = PUBSUB_BASE_DIR / "tmp"
     tmp_dir.mkdir(exist_ok=True)  # Ensure temporary directory exists
-    original_message_file = tmp_dir / f"{message.message_id}"
+    original_message_file = tmp_dir / f"{message.id}"
     with open(original_message_file, 'wb') as msg_file:
         message.write(msg_file)
     
@@ -46,13 +47,13 @@ def publish(topic: str, data: bytes, headers: Optional[dict] = None) -> int:
             logging.warning(f"Channel directory {channel_dir} does not contain a queue file. Skipping.")
             continue
         try:
-            message_file_path = channel_dir / str(message.message_id)
+            message_file_path = channel_dir / str(message.id)
             os.link(str(original_message_file), str(message_file_path))
             with os.fdopen(os.open(str(queue_path), os.O_WRONLY | os.O_NONBLOCK), 'wb') as queue_file:
-                queue_file.write(message.message_id.bytes)
+                queue_file.write(struct.pack('!Q', message.id))
                 publication_count += 1
         except (OSError, BrokenPipeError) as e:
-            logging.warning(f"Failed to publish message {message.message_id} to {queue_path}: {e}")
+            logging.warning(f"Failed to publish message {message.id} to {queue_path}: {e}")
     
     original_message_file.unlink()
     
@@ -64,7 +65,7 @@ def fetch(channel: Channel) -> Optional[Message]:
     """
     Fetch a single message from a channel (non-blocking).
     
-    Reads a 16-byte UUID from the FIFO queue, then loads the actual message
+    Reads an 8-byte message ID from the FIFO queue, then loads the actual message
     from the corresponding file.
     
     Args:
@@ -79,19 +80,18 @@ def fetch(channel: Channel) -> Optional[Message]:
     try:
         # Open queue for reading (non-blocking)
         with os.fdopen(channel.open_queue_for_reading(), 'rb') as queue_file:
-            # Read exactly 16 bytes (UUID size)
-            uuid_bytes = queue_file.read(16)
+            # Read exactly 8 bytes (id size)
+            id_bytes = queue_file.read(8)
             
             # Check if queue is empty
-            if not uuid_bytes or len(uuid_bytes) != 16:
+            if not id_bytes or len(id_bytes) != 8:
                 return None
             
-            # Convert bytes to UUID
-            import uuid
-            message_id = uuid.UUID(bytes=uuid_bytes)
+            # Convert bytes to id
+            id = struct.unpack('!Q', id_bytes)[0]
             
             # Load message from file
-            message_file_path = channel.directory_path / str(message_id)
+            message_file_path = channel.directory_path / str(id)
             if not message_file_path.exists():
                 # Message file doesn't exist (maybe already consumed)
                 return None

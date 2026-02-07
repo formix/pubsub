@@ -9,16 +9,14 @@ __version__ = "0.1.0"
 __author__ = "Your Name"
 __email__ = "your.email@example.com"
 
-from .publisher import Publisher
-from .subscriber import Subscriber
 from .message import Message
-from .exceptions import PubSubError, TopicNotFoundError, SubscriberError
+from .channel import Channel
+from .pubsub import publish, fetch, subscribe
 
 __all__ = [
-    "Publisher",
-    "Subscriber", 
     "Message",
-    "PubSubError",
-    "TopicNotFoundError",
-    "SubscriberError",
+    "Channel",
+    "publish",
+    "fetch", 
+    "subscribe",
 ]

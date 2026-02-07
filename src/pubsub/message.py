@@ -2,10 +2,10 @@
 
 from datetime import datetime, timezone
 from typing import Any, Dict, Optional, BinaryIO
-import uuid
 import struct
 import json
 import io
+import time
 
 
 # Message serialization format version
@@ -22,8 +22,6 @@ class Message:
         self,
         topic: str,
         data: bytes,
-        message_id: Optional[uuid.UUID] = None,
-        timestamp: Optional[datetime] = None,
         headers: Optional[Dict[str, Any]] = None
     ):
         """
@@ -32,15 +30,17 @@ class Message:
         Args:
             topic: The topic this message belongs to
             data: The message payload as bytes
-            message_id: Unique GUID identifier for this message (auto-generated if not provided)
-            timestamp: When the message was created
             headers: Optional metadata headers
         """
+        self.id = int(time.time() * 1_000_000)
         self.topic = topic
         self.data = data
-        self.message_id = message_id or uuid.uuid4()
-        self.timestamp = timestamp or datetime.now(timezone.utc)
         self.headers = headers or {}
+
+    @property
+    def timestamp(self) -> datetime:
+        """Return the message timestamp as a datetime object."""
+        return datetime.fromtimestamp(self.id / 1_000_000, tz=timezone.utc)
     
     def __repr__(self) -> str:
         return f"Message(topic='{self.topic}', data_length={len(self.data)})"
@@ -52,12 +52,11 @@ class Message:
         Binary format:
         - 4 bytes: magic number (0x504D5347 - "PMSG")
         - 1 byte: format version (uint8)
+        - 8 bytes: id (uint64, microseconds since epoch)
         - 4 bytes: topic length (uint32)
         - N bytes: topic (UTF-8 encoded)
         - 4 bytes: data length (uint32) 
         - N bytes: data
-        - 16 bytes: message_id (UUID as binary)
-        - 8 bytes: timestamp (uint64, microseconds since epoch)
         - 4 bytes: headers length (uint32)
         - N bytes: headers (JSON encoded as UTF-8)
         
@@ -67,21 +66,17 @@ class Message:
         # Encode strings as UTF-8
         topic_bytes = self.topic.encode('utf-8')
         
-        # Convert timestamp to microseconds since epoch
-        timestamp_microseconds = int(self.timestamp.timestamp() * 1_000_000)
-        
         # Encode headers as JSON
         headers_json = json.dumps(self.headers, default=str).encode('utf-8')
         
         # Write each component to stream
         stream.write(struct.pack('!I', MESSAGE_MAGIC_NUMBER))
         stream.write(struct.pack('!B', MESSAGE_FORMAT_VERSION))
+        stream.write(struct.pack('!Q', self.id))
         stream.write(struct.pack('!I', len(topic_bytes)))
         stream.write(topic_bytes)
         stream.write(struct.pack('!I', len(self.data)))
         stream.write(self.data)
-        stream.write(self.message_id.bytes)
-        stream.write(struct.pack('!Q', timestamp_microseconds))
         stream.write(struct.pack('!I', len(headers_json)))
         stream.write(headers_json)
     
@@ -135,6 +130,10 @@ class Message:
             if version != MESSAGE_FORMAT_VERSION:
                 raise ValueError(f"Unsupported message format version {version}, expected {MESSAGE_FORMAT_VERSION}")
             
+            # Read id
+            id_data = cls._read_exact(stream, 8)
+            message_id = struct.unpack('!Q', id_data)[0]
+            
             # Read topic
             topic_length_data = cls._read_exact(stream, 4)
             topic_length = struct.unpack('!I', topic_length_data)[0]
@@ -146,17 +145,6 @@ class Message:
             data_length = struct.unpack('!I', data_length_data)[0]
             message_data = cls._read_exact(stream, data_length)
             
-            # Read message_id
-            message_id_data = cls._read_exact(stream, 16)
-            message_id = uuid.UUID(bytes=message_id_data)
-            
-            # Read timestamp
-            timestamp_data = cls._read_exact(stream, 8)
-            timestamp_microseconds = struct.unpack('!Q', timestamp_data)[0]
-            timestamp = datetime.fromtimestamp(
-                timestamp_microseconds / 1_000_000, tz=timezone.utc
-            )
-            
             # Read headers
             headers_length_data = cls._read_exact(stream, 4)
             headers_length = struct.unpack('!I', headers_length_data)[0]
@@ -164,13 +152,14 @@ class Message:
             headers_json = headers_json_data.decode('utf-8')
             headers = json.loads(headers_json)
             
-            return cls(
+            # Create new instance and set the id directly
+            message = cls(
                 topic=topic,
                 data=message_data,
-                message_id=message_id,
-                timestamp=timestamp,
                 headers=headers
             )
+            message.id = message_id
+            return message
             
         except (struct.error, json.JSONDecodeError) as e:
             raise ValueError(f"Invalid message format: {e}") from e
