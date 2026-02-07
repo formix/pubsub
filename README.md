@@ -224,11 +224,6 @@ publish(topic: str, data: bytes, headers: dict = None) -> int
 **Raises:**
 - `ValueError`: If topic contains invalid characters
 
-**System Headers:**
-
-The `publish()` function automatically adds the following reserved header:
-- `_topic` (str): Contains the actual topic value used when publishing. This preserves the original topic in the message metadata.
-
 **Example with headers:**
 ```python
 from pubsub import publish
@@ -239,8 +234,6 @@ headers = {
     "correlation-id": "12345"
 }
 publish("app.events", b"Event data", headers=headers)
-
-# The message will have headers: {"priority": "high", "correlation-id": "12345", "_topic": "app.events"}
 ```
 
 ### fetch()
@@ -290,7 +283,7 @@ Represents a pub/sub message.
 - `topic` (str): Message topic
 - `content` (bytes): Message payload
 - `content_length` (int): Length of content in bytes
-- `headers` (dict): Dictionary of string key-value pairs containing message metadata, including the system-reserved `_topic` header
+- `headers` (dict): Dictionary of string key-value pairs containing message metadata
 
 ## Configuration
 

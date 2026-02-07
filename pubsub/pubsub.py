@@ -18,8 +18,6 @@ def publish(topic: str, data: bytes, headers: dict | None = None) -> int:
     Lists all channel directories in the pubsub base directory and matches against wildcard patterns
     using regex conversion (= -> [a-zA-Z0-9-], + -> [a-zA-Z0-9.-]*).
     
-    The '_topic' header is automatically added to the message headers with the actual topic value.
-    
     Args:
         topic: The topic to publish to
         data: The message payload as bytes
@@ -32,7 +30,6 @@ def publish(topic: str, data: bytes, headers: dict | None = None) -> int:
     """
 
     message = Message(topic=topic, content=data, headers=headers)
-    message.headers["_topic"] = topic  # Ensure topic is included in headers for matching
     tmp_dir = get_base_dir() / "tmp"
     tmp_dir.mkdir(exist_ok=True)  # Ensure temporary directory exists
     message_temp_file = tmp_dir / f"{message.id}"
