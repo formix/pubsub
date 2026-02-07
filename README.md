@@ -1,8 +1,10 @@
 # PubSub
 
-A lightweight, file-system based publish-subscribe messaging system for Python using FIFO (named pipes).
+A lightweight, serverless publish-subscribe messaging system for Python (and other
+languages) interprocess communications.
 
-The version 0.9.0 was tested on linux thouroughly, need more testing on Windows, MacOs and BSD.
+The version 0.9.0 is tested and operates in a linux production environment.
+Need more testing on Windows, MacOs and BSD.
 
 ## Features
 

@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "formix-pubsub"
 version = "0.9.0"
-description = "A Python publish-subscribe messaging library"
+description = "A serverless Python publish-subscribe interprocess messaging library"
 readme = "README.md"
 requires-python = ">=3.10"
 authors = [
