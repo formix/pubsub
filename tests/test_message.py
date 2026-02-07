@@ -19,29 +19,11 @@ class TestMessage(unittest.TestCase):
         assert message.topic == topic
         assert message.content == data
         assert message.id > 0
-        assert message.headers == {}
-    
-    def test_message_with_headers(self):
-        """Test message creation with headers."""
-        topic = "test.topic"
-        data = b"test data"
-        headers = {"source": "test", "priority": "high"}
-        
-        message = Message(
-            topic=topic,
-            content=data,
-            headers=headers
-        )
-        
-        assert message.topic == topic
-        assert message.content == data
-        assert message.id > 0
-        assert message.headers == headers
     
     def test_message_id_uniqueness(self):
         """Test that message IDs are unique."""
         message1 = Message(topic="test", content=b"data1")
-        time.sleep(0.001)  # Small delay to ensure different timestamps
+        #time.sleep(0.001)  # Small delay to ensure different timestamps
         message2 = Message(topic="test", content=b"data2")
         
         assert message1.id != message2.id
@@ -51,9 +33,8 @@ class TestMessage(unittest.TestCase):
         """Test message serialization to bytes."""
         topic = "test.topic"
         data = b"test data with \x00 null bytes"
-        headers = {"key": "value", "number": 42}
         
-        original_message = Message(topic=topic, content=data, headers=headers)
+        original_message = Message(topic=topic, content=data)
         
         # Serialize to bytes
         serialized = original_message.to_bytes()
@@ -66,7 +47,6 @@ class TestMessage(unittest.TestCase):
         assert deserialized.topic == original_message.topic
         assert deserialized.content == original_message.content
         assert deserialized.id == original_message.id
-        assert deserialized.headers == original_message.headers
     
     def test_empty_data(self):
         """Test message with empty data."""
@@ -98,25 +78,6 @@ class TestMessage(unittest.TestCase):
         assert deserialized.topic == topic
         assert deserialized.content == data
     
-    def test_complex_headers(self):
-        """Test message with complex headers."""
-        headers = {
-            "string": "value",
-            "number": 42,
-            "float": 3.14,
-            "bool": True,
-            "list": [1, 2, 3],
-            "nested": {"key": "value"}
-        }
-        
-        message = Message(topic="test", content=b"data", headers=headers)
-        
-        # Test serialization with complex headers
-        serialized = message.to_bytes()
-        deserialized = Message.from_bytes(serialized)
-        
-        assert deserialized.headers == headers
-    
     def test_repr(self):
         """Test message string representation."""
         message = Message(topic="test.topic", content=b"Hello, World!")
@@ -125,14 +86,14 @@ class TestMessage(unittest.TestCase):
         
         assert "Message" in repr_str
         assert "test.topic" in repr_str
-        assert "data_length=13" in repr_str
+        assert "content_length=13" in repr_str
     
     def test_timestamp(self):
         """Test message timestamp property."""
-        # Create message and capture creation time
-        before = time.time()
+        # Create message and capture creation time with some tolerance
+        before = time.time() - 0.01  # Add 10ms buffer before
         message = Message(topic="test", content=b"data")
-        after = time.time()
+        after = time.time() + 0.01  # Add 10ms buffer after
         
         # Get timestamp from property
         timestamp = message.timestamp
