@@ -18,7 +18,7 @@ class TestChannel(unittest.TestCase):
     def tearDown(self):
         """Clean up test channels."""
         for channel in self.test_channels:
-            channel.cleanup()
+            channel.close()
     
     def test_channel_creation(self):
         """Test basic channel creation."""
@@ -123,7 +123,7 @@ class TestChannel(unittest.TestCase):
         assert queue_path.exists()
         
         # Cleanup
-        channel.cleanup()
+        channel.close()
         
         # Verify they're removed
         assert not directory_path.exists()
@@ -145,22 +145,7 @@ class TestChannel(unittest.TestCase):
         # After context: resources cleaned up
         assert not directory_path.exists()
         assert not queue_path.exists()
-    
-    def test_open_queue_for_reading(self):
-        """Test opening FIFO queue for reading."""
-        channel = Channel(topic="test.read")
-        self.test_channels.append(channel)
-        
-        # Open in non-blocking mode
-        fd = channel.open_queue_for_reading()
-        
-        # Should return a valid file descriptor
-        assert isinstance(fd, int)
-        assert fd >= 0
-        
-        # Clean up file descriptor
-        os.close(fd)
-    
+       
     def test_str_representation(self):
         """Test channel string representation."""
         channel = Channel(topic="test.str")
@@ -331,7 +316,7 @@ class TestChannel(unittest.TestCase):
         assert test_file2.exists()
         
         # Cleanup should remove everything
-        channel.cleanup()
+        channel.close()
         
         # Verify directory and files are gone
         assert not directory_path.exists()

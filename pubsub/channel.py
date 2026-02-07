@@ -34,6 +34,7 @@ class Channel:
             ValueError: If topic contains invalid characters
         """
         self._validate_topic(topic)
+        self._fp = -1
         self.topic = topic
         self.process_id = os.getpid()
         self.random_id = self._generate_random_id()
@@ -87,13 +88,37 @@ class Channel:
             raise RuntimeError(f"Failed to create channel directory or FIFO: {e}") from e
         
     
-    def cleanup(self) -> None:
+    def open(self) -> None:
         """
-        Clean up the channel by removing unconsumed messages, the FIFO, and directory.
+        Open the FIFO queue for reading in non-blocking mode.
+        
+        Raises:
+            OSError: If unable to open the FIFO for reading
+        """
+        if self._fp != -1:
+            return  # Already open
+        
+        try:
+            self._fp = os.open(str(self.queue_path), os.O_RDONLY | os.O_NONBLOCK)
+        except OSError as e:
+            raise OSError(f"Failed to open queue for reading: {e}") from e
+
+    def close(self) -> None:
+        """
+        Close and clean up the channel by removing unconsumed messages, the FIFO, and directory.
         
         This ensures that any undelivered messages are properly deleted when the
         channel is disposed, preventing resource leaks.
         """
+        # Close the file descriptor if it's open
+        if self._fp != -1:
+            try:
+                os.close(self._fp)
+                self._fp = -1
+            except OSError as e:
+                raise RuntimeError(f"Failed to close channel file descriptor {self.directory_name}: {e}") from e
+
+        # Clean up the directory regardless of whether channel was opened
         try:
             # Remove the fifo queue and all unconsumed message files in the directory
             if self.directory_path.exists() and self.directory_path.is_dir():
@@ -110,22 +135,6 @@ class Channel:
         except OSError as e:
             raise RuntimeError(f"Failed to cleanup channel {self.directory_name}: {e}") from e
 
-    
-    def open_queue_for_reading(self) -> int:
-        """
-        Open the FIFO queue for reading in non-blocking mode.
-        
-        Returns:
-            File descriptor for reading
-            
-        Raises:
-            OSError: If unable to open the FIFO for reading
-        """
-        try:
-            return os.open(str(self.queue_path), os.O_RDONLY | os.O_NONBLOCK)
-        except OSError as e:
-            raise OSError(f"Failed to open queue for reading: {e}") from e
-        
 
     @staticmethod
     def active_paths() -> List[Path]:
@@ -211,8 +220,9 @@ class Channel:
     
     def __enter__(self):
         """Context manager entry."""
+        self.open()
         return self
     
     def __exit__(self, exc_type, exc_val, exc_tb):
         """Context manager exit - cleanup resources."""
-        self.cleanup()
+        self.close()

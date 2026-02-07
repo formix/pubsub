@@ -74,27 +74,31 @@ def fetch(channel: Channel) -> Optional[Message]:
     Raises:
         ValueError: If message format is invalid
     """
-    # Open queue for reading (non-blocking)
-    with os.fdopen(channel.open_queue_for_reading(), 'rb') as queue_file:
-        id_bytes = queue_file.read(8)
-        if not id_bytes or len(id_bytes) != 8:
-            # nonblocking read with no data available or incomplete ID
-            return None
+    # Read message ID from queue (non-blocking)
+    try:
+        id_bytes = os.read(channel._fp, 8)
+    except BlockingIOError:
+        # No data available (non-blocking read)
+        return None
+    
+    if not id_bytes or len(id_bytes) != 8:
+        # No data available or incomplete ID
+        return None
 
-        id = struct.unpack('!Q', id_bytes)[0]
-        message_file_path = channel.directory_path / str(id)
-        if not message_file_path.exists():
-            return None
-            
-        with open(message_file_path, 'rb') as msg_file:
-            message = Message.read(msg_file)
-            
-        message_file_path.unlink()
+    id = struct.unpack('!Q', id_bytes)[0]
+    message_file_path = channel.directory_path / str(id)
+    if not message_file_path.exists():
+        return None
         
-        return message
+    with open(message_file_path, 'rb') as msg_file:
+        message = Message.read(msg_file)
+        
+    message_file_path.unlink()
+    
+    return message
 
 
-def subscribe(channel: Channel, callback: Callable[[Message], None], timeout_seconds = 0) -> int:
+def subscribe(channel: Channel, callback: Callable[[Message], None], timeout_seconds: float = 0) -> int:
     """
     Subscribe to a channel and call a function for each received message.
     
