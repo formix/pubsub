@@ -3,30 +3,16 @@
 import unittest
 import time
 import threading
-from pathlib import Path
 from pubsub.pubsub import publish, fetch, subscribe
 from pubsub.channel import Channel
-from pubsub.message import Message
-from pubsub.abstractions import get_base_dir
-
 
 class TestPublish(unittest.TestCase):
     """Test cases for publish function."""
-    
-    def setUp(self):
-        """Set up test fixtures."""
-        self.test_channels = []
-    
-    def tearDown(self):
-        """Clean up test channels."""
-        for channel in self.test_channels:
-            channel.close()
     
     def test_publish_to_exact_match(self):
         """Test publishing to a channel with exact topic match."""
         topic = "test.publish.exact"
         channel = Channel(topic=topic)
-        self.test_channels.append(channel)
         
         with channel:
             data = b"test message"
@@ -45,27 +31,23 @@ class TestPublish(unittest.TestCase):
         channel1 = Channel(topic=topic)
         channel2 = Channel(topic=topic)
         channel3 = Channel(topic=topic)
-        self.test_channels.extend([channel1, channel2, channel3])
         
-        with channel1:
-            with channel2:
-                with channel3:
-                    data = b"broadcast message"
-                    count = publish(topic, data)
-                    
-                    assert count == 3
-                    
-                    # Each channel should have the message file
-                    for channel in [channel1, channel2, channel3]:
-                        files = list(channel.directory_path.glob("*"))
-                        message_files = [f for f in files if f.name != "queue"]
-                        assert len(message_files) == 1
+        with channel1, channel2, channel3:
+            data = b"broadcast message"
+            count = publish(topic, data)
+            
+            assert count == 3
+            
+            # Each channel should have the message file
+            for channel in [channel1, channel2, channel3]:
+                files = list(channel.directory_path.glob("*"))
+                message_files = [f for f in files if f.name != "queue"]
+                assert len(message_files) == 1
     
     def test_publish_with_wildcard_match(self):
         """Test publishing with wildcard matching."""
         wildcard_topic = "test.+"
         channel = Channel(topic=wildcard_topic)
-        self.test_channels.append(channel)
         
         with channel:
             data = b"wildcard message"
@@ -84,7 +66,6 @@ class TestPublish(unittest.TestCase):
         """Test publishing empty data."""
         topic = "test.empty"
         channel = Channel(topic=topic)
-        self.test_channels.append(channel)
         
         with channel:
             data = b""
@@ -96,7 +77,6 @@ class TestPublish(unittest.TestCase):
         """Test publishing large data payload."""
         topic = "test.large"
         channel = Channel(topic=topic)
-        self.test_channels.append(channel)
         
         with channel:
             data = b"x" * 1024 * 1024  # 1MB
@@ -118,20 +98,10 @@ class TestPublish(unittest.TestCase):
 class TestFetch(unittest.TestCase):
     """Test cases for fetch function."""
     
-    def setUp(self):
-        """Set up test fixtures."""
-        self.test_channels = []
-    
-    def tearDown(self):
-        """Clean up test channels."""
-        for channel in self.test_channels:
-            channel.close()
-    
     def test_fetch_single_message(self):
         """Test fetching a single message."""
         topic = "test.fetch.single"
         channel = Channel(topic=topic)
-        self.test_channels.append(channel)
         with channel:
             # Publish a message
             data = b"fetch me"
@@ -149,7 +119,6 @@ class TestFetch(unittest.TestCase):
         """Test fetching when no message is available."""
         topic = "test.fetch.empty"
         channel = Channel(topic=topic)
-        self.test_channels.append(channel)
         
         with channel:
             # Don't publish anything
@@ -161,7 +130,6 @@ class TestFetch(unittest.TestCase):
         """Test fetching multiple messages in sequence."""
         topic = "test.fetch.multiple"
         channel = Channel(topic=topic)
-        self.test_channels.append(channel)
         
         with channel:
             # Publish multiple messages
@@ -192,7 +160,6 @@ class TestFetch(unittest.TestCase):
         """Test that fetch removes the message file after reading."""
         topic = "test.fetch.cleanup"
         channel = Channel(topic=topic)
-        self.test_channels.append(channel)
         
         with channel:
             # Publish a message
@@ -217,7 +184,6 @@ class TestFetch(unittest.TestCase):
         """Test that fetched message preserves all attributes."""
         topic = "test.fetch.attrs"
         channel = Channel(topic=topic)
-        self.test_channels.append(channel)
         
         with channel:
             # Publish a message
@@ -237,7 +203,6 @@ class TestFetch(unittest.TestCase):
         """Test fetching message with empty content."""
         topic = "test.fetch.empty.content"
         channel = Channel(topic=topic)
-        self.test_channels.append(channel)
         
         with channel:
             # Publish empty message
@@ -255,20 +220,16 @@ class TestSubscribe(unittest.TestCase):
     
     def setUp(self):
         """Set up test fixtures."""
-        self.test_channels = []
         self.received_messages = []
     
     def tearDown(self):
-        """Clean up test channels."""
-        for channel in self.test_channels:
-            channel.close()
+        """Clean up test fixtures."""
         self.received_messages.clear()
     
     def test_subscribe_receives_messages(self):
         """Test that subscribe receives published messages."""
         topic = "test.subscribe.receive"
         channel = Channel(topic=topic)
-        self.test_channels.append(channel)
         
         with channel:
             # Publish messages in a separate thread
@@ -298,7 +259,6 @@ class TestSubscribe(unittest.TestCase):
         """Test that subscribe respects timeout."""
         topic = "test.subscribe.timeout"
         channel = Channel(topic=topic)
-        self.test_channels.append(channel)
         
         with channel:
             # Don't publish anything
@@ -316,7 +276,6 @@ class TestSubscribe(unittest.TestCase):
         """Test that subscribe raises error for negative timeout."""
         topic = "test.subscribe.negative"
         channel = Channel(topic=topic)
-        self.test_channels.append(channel)
         
         def callback(message):
             pass
@@ -329,7 +288,6 @@ class TestSubscribe(unittest.TestCase):
         """Test that subscribe continues on callback exception."""
         topic = "test.subscribe.exception"
         channel = Channel(topic=topic)
-        self.test_channels.append(channel)
         
         with channel:
             # Publish messages in a separate thread
@@ -360,7 +318,6 @@ class TestSubscribe(unittest.TestCase):
         """Test that timeout=0 means listen indefinitely (needs manual stop)."""
         topic = "test.subscribe.zero"
         channel = Channel(topic=topic)
-        self.test_channels.append(channel)
         
         with channel:
             # This test would hang if timeout=0 meant indefinite
@@ -383,20 +340,10 @@ class TestSubscribe(unittest.TestCase):
 class TestIntegration(unittest.TestCase):
     """Integration tests for publish-subscribe flow."""
     
-    def setUp(self):
-        """Set up test fixtures."""
-        self.test_channels = []
-    
-    def tearDown(self):
-        """Clean up test channels."""
-        for channel in self.test_channels:
-            channel.close()
-    
     def test_pub_sub_flow(self):
         """Test complete publish-subscribe flow."""
         topic = "test.integration.flow"
         channel = Channel(topic=topic)
-        self.test_channels.append(channel)
         
         with channel:
             received = []
@@ -427,50 +374,45 @@ class TestIntegration(unittest.TestCase):
         topic = "test.integration.multi"
         channel1 = Channel(topic=topic)
         channel2 = Channel(topic=topic)
-        self.test_channels.extend([channel1, channel2])
         
-        with channel1:
-            with channel2:
-                received1 = []
-                received2 = []
-                
-                def subscriber1_thread():
-                    def callback(message):
-                        received1.append(message)
-                    subscribe(channel1, callback, timeout_seconds=1.0)
-                
-                def subscriber2_thread():
-                    def callback(message):
-                        received2.append(message)
-                    subscribe(channel2, callback, timeout_seconds=1.0)
-                
-                # Start subscribers
-                sub1_thread = threading.Thread(target=subscriber1_thread)
-                sub2_thread = threading.Thread(target=subscriber2_thread)
-                sub1_thread.start()
-                sub2_thread.start()
-                
-                # Publish messages
-                time.sleep(0.1)
-                data = b"Broadcast message"
-                count = publish(topic, data)
-                
-                # Wait for subscribers
-                sub1_thread.join()
-                sub2_thread.join()
-                
-                # Both should receive the message
-                assert count == 2
-                assert len(received1) >= 1
-                assert len(received2) >= 1
-                assert received1[0].content == data
-                assert received2[0].content == data
-    
-    def test_pub_sub_ordering(self):
+        with channel1, channel2:
+            received1 = []
+            received2 = []
+            
+            def subscriber1_thread():
+                def callback(message):
+                    received1.append(message)
+                subscribe(channel1, callback, timeout_seconds=1.0)
+            
+            def subscriber2_thread():
+                def callback(message):
+                    received2.append(message)
+                subscribe(channel2, callback, timeout_seconds=1.0)
+            
+            # Start subscribers
+            sub1_thread = threading.Thread(target=subscriber1_thread)
+            sub2_thread = threading.Thread(target=subscriber2_thread)
+            sub1_thread.start()
+            sub2_thread.start()
+            
+            # Publish messages
+            time.sleep(0.1)
+            data = b"Broadcast message"
+            count = publish(topic, data)
+            
+            # Wait for subscribers
+            sub1_thread.join()
+            sub2_thread.join()
+            
+            # Both should receive the message
+            assert count == 2
+            assert len(received1) >= 1
+            assert len(received2) >= 1
+            assert received1[0].content == data
+            assert received2[0].content == data
         """Test that messages are received in order."""
         topic = "test.integration.order"
         channel = Channel(topic=topic)
-        self.test_channels.append(channel)
         
         with channel:
             received = []
@@ -502,7 +444,6 @@ class TestIntegration(unittest.TestCase):
         """Test that messages published before subscribe can be fetched."""
         topic = "test.integration.prebuffer"
         channel = Channel(topic=topic)
-        self.test_channels.append(channel)
         
         with channel:
             # Publish messages BEFORE subscribing
@@ -528,44 +469,40 @@ class TestIntegration(unittest.TestCase):
         topic2 = "test.integration.topic2"
         channel1 = Channel(topic=topic1)
         channel2 = Channel(topic=topic2)
-        self.test_channels.extend([channel1, channel2])
         
-        with channel1:
-            with channel2:
-                received1 = []
-                received2 = []
-                
-                def subscriber1():
-                    def callback(message):
-                        received1.append(message)
-                    subscribe(channel1, callback, timeout_seconds=0.5)
-                
-                def subscriber2():
-                    def callback(message):
-                        received2.append(message)
-                    subscribe(channel2, callback, timeout_seconds=0.5)
-                
-                # Start both subscribers
-                sub1 = threading.Thread(target=subscriber1)
-                sub2 = threading.Thread(target=subscriber2)
-                sub1.start()
-                sub2.start()
-                
-                time.sleep(0.1)
-                
-                # Publish to different topics
-                publish(topic1, b"for topic 1")
-                publish(topic2, b"for topic 2")
-                
-                sub1.join()
-                sub2.join()
-                
-                # Each should only receive its own messages
-                assert len(received1) == 1
-                assert len(received2) == 1
-                assert received1[0].content == b"for topic 1"
-                assert received2[0].content == b"for topic 2"
-
-
+        with channel1, channel2:
+            received1 = []
+            received2 = []
+            
+            def subscriber1():
+                def callback(message):
+                    received1.append(message)
+                subscribe(channel1, callback, timeout_seconds=0.5)
+            
+            def subscriber2():
+                def callback(message):
+                    received2.append(message)
+                subscribe(channel2, callback, timeout_seconds=0.5)
+            
+            # Start both subscribers
+            sub1 = threading.Thread(target=subscriber1)
+            sub2 = threading.Thread(target=subscriber2)
+            sub1.start()
+            sub2.start()
+            
+            time.sleep(0.1)
+            
+            # Publish to different topics
+            publish(topic1, b"for topic 1")
+            publish(topic2, b"for topic 2")
+            
+            sub1.join()
+            sub2.join()
+            
+            # Each should only receive its own messages
+            assert len(received1) == 1
+            assert len(received2) == 1
+            assert received1[0].content == b"for topic 1"
+            assert received2[0].content == b"for topic 2"
 if __name__ == "__main__":
     unittest.main()
