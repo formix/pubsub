@@ -28,7 +28,6 @@ def get_base_dir() -> Path:
     if _base_dir_cache is not None:
         return _base_dir_cache
     
-    # Check for environment variable override first
     env_dir = os.environ.get("PUBSUB_BASE_DIR")
     if env_dir:
         _base_dir_cache = Path(env_dir)
@@ -36,7 +35,6 @@ def get_base_dir() -> Path:
     
     system = platform.system()
     if system == "Windows":
-        # Use Windows temp directory
         temp_dir = os.environ.get("TEMP", os.environ.get("TMP", "C:\\Temp"))
         base_dir = Path(temp_dir) / "pubsub"
     else:
@@ -46,7 +44,6 @@ def get_base_dir() -> Path:
         if shm_path.exists() and shm_path.is_dir():
             base_dir = shm_path / "pubsub"
         else:
-            # Fallback to /tmp if /dev/shm doesn't exist (e.g., macOS, containers)
             base_dir = Path("/tmp/pubsub")
     
     _base_dir_cache = base_dir
