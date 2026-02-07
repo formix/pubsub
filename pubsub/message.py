@@ -6,6 +6,7 @@ import struct
 import io
 import time
 import random
+import json
 
 
 # Message serialization format version
@@ -22,7 +23,8 @@ class Message:
     def __init__(
         self,
         topic: str,
-        content: bytes
+        content: bytes,
+        headers: dict | None = None
     ):
         """
         Initialize a new message.
@@ -30,11 +32,13 @@ class Message:
         Args:
             topic: The topic this message belongs to
             content: The message payload as bytes
+            headers: Optional dictionary of string key-value pairs for metadata
         """
         self.id = self._next_id()
         self.timestamp = int(time.time() * 1_000_000)  # microseconds since epoch
         self.topic = topic
         self.content = content
+        self.headers = headers if headers is not None else {}
 
 
     @staticmethod
@@ -66,6 +70,8 @@ class Message:
         - 8 bytes: timestamp (uint64, microseconds since epoch)
         - 4 bytes: topic length (uint32)
         - N bytes: topic (UTF-8 encoded)
+        - 4 bytes: headers JSON length (uint32)
+        - N bytes: headers as JSON string (UTF-8 encoded)
         - 4 bytes: content length (uint32) 
         - N bytes: content
         
@@ -74,6 +80,8 @@ class Message:
         """
         # Encode strings as UTF-8
         topic_bytes = self.topic.encode('utf-8')
+        headers_json = json.dumps(self.headers, ensure_ascii=False)
+        headers_bytes = headers_json.encode('utf-8')
         
         # Write each component to stream
         stream.write(struct.pack('!I', MESSAGE_MAGIC_NUMBER))
@@ -82,6 +90,8 @@ class Message:
         stream.write(struct.pack('!Q', self.timestamp))
         stream.write(struct.pack('!I', len(topic_bytes)))
         stream.write(topic_bytes)
+        stream.write(struct.pack('!I', len(headers_bytes)))
+        stream.write(headers_bytes)
         stream.write(struct.pack('!I', len(self.content)))
         stream.write(self.content)
     
@@ -155,6 +165,13 @@ class Message:
         topic_data = cls._read_exact(stream, topic_length)
         topic = topic_data.decode('utf-8')
         
+        # Read headers
+        headers_length_data = cls._read_exact(stream, 4)
+        headers_length = struct.unpack('!I', headers_length_data)[0]
+        headers_data = cls._read_exact(stream, headers_length)
+        headers_json = headers_data.decode('utf-8')
+        headers = json.loads(headers_json) if headers_json else {}
+        
         # Read data
         data_length_data = cls._read_exact(stream, 4)
         data_length = struct.unpack('!I', data_length_data)[0]
@@ -163,7 +180,8 @@ class Message:
         # Create new instance and set the id and timestamp directly
         message = cls(
             topic=topic,
-            content=message_content
+            content=message_content,
+            headers=headers
         )
         message.id = message_id
         message.timestamp = message_timestamp

@@ -110,6 +110,74 @@ with channel1, channel2:
     thread2.join()
 ```
 
+### Remote Procedure Call (RPC) Pattern
+
+```python
+import threading
+import time
+from pubsub import Channel, publish, subscribe, fetch
+
+# Server: Process requests and send responses
+def rpc_server():
+    request_channel = Channel(topic="rpc.requests")
+    
+    with request_channel:
+        def handle_request(request):
+            print(f"Server received: {request.content.decode()}")
+            
+            # Extract response topic and correlation ID from headers
+            response_topic = request.headers.get("response-topic")
+            correlation_id = request.headers.get("correlation-id")
+            
+            if response_topic and correlation_id:
+                # Process the request (simulate work)
+                result = f"Processed: {request.content.decode()}"
+                
+                # Send response with correlation ID
+                response_headers = {
+                    "correlation-id": correlation_id
+                }
+                publish(response_topic, result.encode(), headers=response_headers)
+                print(f"Server sent response with correlation-id: {correlation_id}")
+        
+        subscribe(request_channel, handle_request, timeout_seconds=5.0)
+
+# Client: Send request and wait for response
+def rpc_client():
+    response_channel = Channel(topic="rpc.responses.client1")
+    
+    with response_channel:
+        # Create request with response topic and correlation ID
+        request_data = b"Calculate 2 + 2"
+        request_headers = {
+            "response-topic": "rpc.responses.client1",
+            "correlation-id": str(int(time.time() * 1000000))  # Use timestamp as correlation ID
+        }
+        
+        print(f"Client sending request with correlation-id: {request_headers['correlation-id']}")
+        publish("rpc.requests", request_data, headers=request_headers)
+        
+        # Wait for response
+        response = fetch(response_channel)
+        if response:
+            correlation_id = response.headers.get("correlation-id")
+            print(f"Client received response with correlation-id: {correlation_id}")
+            print(f"Result: {response.content.decode()}")
+
+# Start server in background thread
+server_thread = threading.Thread(target=rpc_server)
+server_thread.start()
+
+# Give server time to start
+time.sleep(0.1)
+
+# Execute client request
+rpc_client()
+
+# Wait for server to finish
+server_thread.join()
+```
+
 ## API Reference
 
 ### Channel
@@ -142,18 +210,38 @@ with channel:
 Publishes a message to all matching channels.
 
 ```python
-publish(topic: str, data: bytes) -> int
+publish(topic: str, data: bytes, headers: dict = None) -> int
 ```
 
 **Parameters:**
 - `topic` (str): Topic to publish to
 - `data` (bytes): Message payload
+- `headers` (dict): Optional dictionary of string key-value pairs for metadata
 
 **Returns:**
 - `int`: Number of channels the message was published to
 
 **Raises:**
 - `ValueError`: If topic contains invalid characters
+
+**System Headers:**
+
+The `publish()` function automatically adds the following reserved header:
+- `_topic` (str): Contains the actual topic value used when publishing. This preserves the original topic in the message metadata.
+
+**Example with headers:**
+```python
+from pubsub import publish
+
+# Publish with custom headers
+headers = {
+    "priority": "high",
+    "correlation-id": "12345"
+}
+publish("app.events", b"Event data", headers=headers)
+
+# The message will have headers: {"priority": "high", "correlation-id": "12345", "_topic": "app.events"}
+```
 
 ### fetch()
 
@@ -202,6 +290,7 @@ Represents a pub/sub message.
 - `topic` (str): Message topic
 - `content` (bytes): Message payload
 - `content_length` (int): Length of content in bytes
+- `headers` (dict): Dictionary of string key-value pairs containing message metadata, including the system-reserved `_topic` header
 
 ## Configuration
 

@@ -11,17 +11,19 @@ from .channel import Channel
 from .abstractions import get_base_dir
 
 
-def publish(topic: str, data: bytes) -> int:
+def publish(topic: str, data: bytes, headers: dict | None = None) -> int:
     """
     Publish a message to a topic.
     
     Lists all channel directories in the pubsub base directory and matches against wildcard patterns
     using regex conversion (= -> [a-zA-Z0-9-], + -> [a-zA-Z0-9.-]*).
     
+    The '_topic' header is automatically added to the message headers with the actual topic value.
+    
     Args:
         topic: The topic to publish to
         data: The message payload as bytes
-        
+        headers: Optional dictionary of string key-value pairs for metadata
     Returns:
         The number of times the messages was published in a channel
         
@@ -29,7 +31,8 @@ def publish(topic: str, data: bytes) -> int:
         RuntimeError: If unable to publish to any matching channels
     """
 
-    message = Message(topic=topic, content=data)
+    message = Message(topic=topic, content=data, headers=headers)
+    message.headers["_topic"] = topic  # Ensure topic is included in headers for matching
     tmp_dir = get_base_dir() / "tmp"
     tmp_dir.mkdir(exist_ok=True)  # Ensure temporary directory exists
     message_temp_file = tmp_dir / f"{message.id}"

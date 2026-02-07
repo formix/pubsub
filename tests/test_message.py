@@ -116,4 +116,55 @@ class TestMessage(unittest.TestCase):
         assert isinstance(deserialized.timestamp, int)
         
         assert deserialized.timestamp == message.timestamp
+    
+    def test_headers_empty(self):
+        """Test message with no headers."""
+        message = Message(topic="test", content=b"data")
+        
+        assert message.headers == {}
+        assert isinstance(message.headers, dict)
+        
+        # Verify serialization preserves empty headers
+        serialized = message.to_bytes()
+        deserialized = Message.from_bytes(serialized)
+        
+        assert deserialized.headers == {}
+    
+    def test_headers_with_values(self):
+        """Test message with headers."""
+        headers = {
+            "content-type": "application/json",
+            "priority": "high",
+            "correlation-id": "12345"
+        }
+        message = Message(topic="test", content=b"data", headers=headers)
+        
+        assert message.headers == headers
+        assert message.headers["content-type"] == "application/json"
+        assert message.headers["priority"] == "high"
+        
+        # Verify serialization preserves headers
+        serialized = message.to_bytes()
+        deserialized = Message.from_bytes(serialized)
+        
+        assert deserialized.headers == headers
+        assert deserialized.headers["content-type"] == "application/json"
+        assert deserialized.headers["priority"] == "high"
+        assert deserialized.headers["correlation-id"] == "12345"
+    
+    def test_headers_unicode_values(self):
+        """Test message headers with unicode values."""
+        headers = {
+            "user": "José García",
+            "message": "Hello 世界 🌍"
+        }
+        message = Message(topic="test", content=b"data", headers=headers)
+        
+        # Verify serialization handles unicode in headers
+        serialized = message.to_bytes()
+        deserialized = Message.from_bytes(serialized)
+        
+        assert deserialized.headers == headers
+        assert deserialized.headers["user"] == "José García"
+        assert deserialized.headers["message"] == "Hello 世界 🌍"
         assert deserialized.id == message.id
