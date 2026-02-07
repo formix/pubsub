@@ -203,11 +203,45 @@ Represents a pub/sub message.
 - `content` (bytes): Message payload
 - `content_length` (int): Length of content in bytes
 
+## Configuration
+
+### Environment Variables
+
+#### PUBSUB_HOME
+
+Override the default storage location for pubsub channels and messages.
+
+**Default behavior:**
+- Linux/Unix: `/dev/shm/pubsub` (tmpfs for best performance)
+- Other systems: `<system_temp>/pubsub`
+
+**Usage:**
+```bash
+# Set custom storage location
+export PUBSUB_HOME=/tmp/my-pubsub
+
+# Run your application
+python your_app.py
+```
+
+**Example:**
+```python
+import os
+os.environ['PUBSUB_HOME'] = '/path/to/custom/location'
+
+from pubsub import Channel, publish, subscribe
+
+# Now all channels will use the custom location
+channel = Channel(topic="app.logs")
+```
+
+**Note:** The base directory is cached after first use, so `PUBSUB_HOME` should be set before importing or using pubsub functions.
+
 ## Architecture
 
 ### Storage Location
 
-Messages are stored in `/dev/shm/pubsub/` (tmpfs) for fast access. Each channel creates a directory containing:
+Messages are stored in `/dev/shm/pubsub/` (tmpfs) by default for fast access. Each channel creates a directory containing:
 - `queue`: FIFO pipe for message IDs
 - `<message_id>`: Message content files
 
