@@ -93,6 +93,26 @@ class TestPublish(unittest.TestCase):
             channel = Channel(topic=topic)
         
         assert "invalid characters" in str(context.exception).lower()
+    
+    def test_publish_with_wildcard_equals(self):
+        """Test that publishing to a topic with = wildcard raises ValueError."""
+        topic = "test.=.invalid"
+        
+        with self.assertRaises(ValueError) as context:
+            publish(topic, b"test data")
+        
+        # Verify error message mentions allowed characters
+        assert "a-zA-Z0-9.-" in str(context.exception) or "alphanumeric" in str(context.exception).lower()
+    
+    def test_publish_with_wildcard_plus(self):
+        """Test that publishing to a topic with + wildcard raises ValueError."""
+        topic = "test.+"
+        
+        with self.assertRaises(ValueError) as context:
+            publish(topic, b"test data")
+        
+        # Verify error message mentions allowed characters
+        assert "a-zA-Z0-9.-" in str(context.exception) or "alphanumeric" in str(context.exception).lower()
 
 
 class TestFetch(unittest.TestCase):

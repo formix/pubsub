@@ -1,6 +1,7 @@
 """PubSub module for publishing, fetching, and subscribing to messages."""
 
 import os
+import re
 import time
 import logging
 import struct
@@ -15,19 +16,21 @@ def publish(topic: str, data: bytes, headers: dict | None = None) -> int:
     """
     Publish a message to a topic.
     
-    Lists all channel directories in the pubsub base directory and matches against wildcard patterns
-    using regex conversion (= -> [a-zA-Z0-9-], + -> [a-zA-Z0-9.-]*).
-    
     Args:
-        topic: The topic to publish to
+        topic: The topic to publish to (only alphanumeric, dots, and hyphens allowed)
         data: The message payload as bytes
         headers: Optional dictionary of string key-value pairs for metadata
     Returns:
         The number of times the messages was published in a channel
         
     Raises:
+        ValueError: If topic contains invalid characters (must be [a-zA-Z0-9.-])
         RuntimeError: If unable to publish to any matching channels
     """
+    
+    # Validate that topic contains only allowed characters (no wildcards)
+    if not re.match(r'^[a-zA-Z0-9.-]+$', topic):
+        raise ValueError(f"Topic '{topic}' can only contain alphanumeric characters, dots, and hyphens [a-zA-Z0-9.-] when publishing")
 
     message = Message(topic=topic, content=data, headers=headers)
     tmp_dir = get_base_dir() / "tmp"

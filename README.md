@@ -214,7 +214,7 @@ publish(topic: str, data: bytes, headers: dict = None) -> int
 ```
 
 **Parameters:**
-- `topic` (str): Topic to publish to
+- `topic` (str): Topic to publish to (only alphanumeric characters, dots, and hyphens allowed: `[a-zA-Z0-9.-]`)
 - `data` (bytes): Message payload
 - `headers` (dict): Optional dictionary of string key-value pairs for metadata
 
@@ -222,7 +222,7 @@ publish(topic: str, data: bytes, headers: dict = None) -> int
 - `int`: Number of channels the message was published to
 
 **Raises:**
-- `ValueError`: If topic contains invalid characters
+- `ValueError`: If topic contains invalid characters (only `[a-zA-Z0-9.-]` allowed)
 
 **Example with headers:**
 ```python
