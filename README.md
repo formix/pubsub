@@ -3,9 +3,6 @@
 A lightweight, serverless publish-subscribe messaging system for Python (and other
 languages) interprocess communications.
 
-The version 0.9.0 is tested and operates in a linux production environment.
-Need more testing on Windows, MacOs and BSD.
-
 ## Features
 
 - **Topic-based routing** with wildcard support (`=` for single word, `+` for multiple words)
