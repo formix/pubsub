@@ -1,9 +1,8 @@
 """Message class for pubsub library."""
 
 from datetime import datetime, timezone
-from typing import Any, Dict, Optional, BinaryIO
+from typing import BinaryIO
 import struct
-import json
 import io
 import time
 

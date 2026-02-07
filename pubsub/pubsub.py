@@ -2,16 +2,13 @@
 
 import os
 import time
-import select
-import re
 import logging
 import struct
-from typing import Callable, Optional, List
-from pathlib import Path
+from typing import Callable, Optional
 
 from .message import Message
 from .channel import Channel
-from .abstractions import get_base_dir, is_process_running
+from .abstractions import get_base_dir
 
 
 def publish(topic: str, data: bytes) -> int:
