@@ -3,6 +3,7 @@
 import logging
 import os
 import re
+import signal
 import struct
 import time
 from collections.abc import Callable
@@ -120,13 +121,24 @@ def subscribe(
     Listens for messages for the specified duration and calls the callback function
     for each message received.
 
+    Signal Handling:
+        This function handles SIGTERM and SIGINT signals gracefully. When either signal
+        is received:
+        - The subscription loop exits cleanly
+        - Any message being processed completes normally
+        - The function returns the count of processed messages
+        - The original signal handler (if any) is called before returning
+
+        This allows subscribers services to be terminated gracefully.
+
     Args:
         channel: The channel to subscribe to
         callback: Function to call with each received message
         timeout_seconds: How long to listen for messages (0 = listen indefinitely)
 
     Returns:
-        Number of messages processed
+        - Number of messages processed. Returned after normal timeout expiration.
+        - Returns -1 if exited due to a termination signal (SIGTERM/SIGINT).
 
     Raises:
         RuntimeError: If channel is not open for reading
@@ -139,17 +151,43 @@ def subscribe(
     if timeout_seconds < 0:
         raise ValueError("timeout_seconds must be non-negative")
 
-    message_count = 0
-    start_time = time.time()
-    listen_indefinitely = timeout_seconds == 0
-    while listen_indefinitely or (time.time() - start_time < timeout_seconds):
-        message = fetch(channel)
-        if message:
-            try:
-                callback(message)
-            except Exception as e:
-                logging.warning(f"Error processing message {message}: {e}")
-            message_count += 1
-        time.sleep(0.01)  # Sleep briefly to avoid busy waiting
+    # Set up signal handler for graceful shutdown
+    shutdown_requested = False
+    signal_args: tuple | None = None
+    def signal_handler(signum, frame):
+        nonlocal shutdown_requested, signal_args
+        shutdown_requested = True
+        signal_args = (signum, frame)
+        logging.info("Received termination signal, exiting subscribe loop...")
 
-    return message_count
+    # Register SIGTERM and SIGINT handlers
+    original_sigterm = signal.signal(signal.SIGTERM, signal_handler)
+    original_sigint = signal.signal(signal.SIGINT, signal_handler)
+
+    try:
+        message_count = 0
+        start_time = time.time()
+        listen_forever = timeout_seconds == 0
+        while not shutdown_requested and (
+            listen_forever or (time.time() - start_time < timeout_seconds)
+        ):
+            message = fetch(channel)
+            if message:
+                try:
+                    callback(message)
+                except Exception as e:
+                    logging.warning(f"Error processing message {message}: {e}")
+                message_count += 1
+            time.sleep(0.01)  # Sleep briefly to avoid busy waiting
+        if shutdown_requested:
+            logging.info("Exiting subscribe loop on '%s'. Handled %i messages.",
+                         channel.topic, message_count)
+            return -1  # Indicate shutdown by signal
+        return message_count
+    finally:
+        # Call original handler if a signal was received
+        if signal_args is not None:
+            if signal_args[0] == signal.SIGTERM and callable(original_sigterm):
+                original_sigterm(*signal_args)
+            elif signal_args[0] == signal.SIGINT and callable(original_sigint):
+                original_sigint(*signal_args)
