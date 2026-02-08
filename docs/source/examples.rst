@@ -231,6 +231,7 @@ with explicit action, and clients use headers to specify where responses should 
    # client.py
    from pubsub import Channel, publish, fetch
    import os
+   import time
    import uuid
 
    def call_multiply(value):
@@ -253,6 +254,7 @@ with explicit action, and clients use headers to specify where responses should 
            publish("rpc.multiply", str(value).encode(), headers=request_headers)
 
            # Wait for response
+           time.sleep(1)
            response = fetch(response_channel)
            if response:
                response_correlation_id = response.headers.get("correlation-id")
