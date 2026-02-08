@@ -1,34 +1,32 @@
 API Reference
 =============
 
-Core Functions
---------------
-
-.. automodule:: pubsub.pubsub
+.. automodule:: pubsub
    :members:
    :undoc-members:
    :show-inheritance:
+   :imported-members:
 
-Channel
+This documents all public API members available directly from the ``pubsub`` package.
+
+Classes
 -------
 
-.. automodule:: pubsub.channel
+.. autoclass:: pubsub.Channel
    :members:
    :undoc-members:
    :show-inheritance:
 
-Message
--------
-
-.. automodule:: pubsub.message
+.. autoclass:: pubsub.Message
    :members:
    :undoc-members:
    :show-inheritance:
 
-Abstractions
-------------
+Functions
+---------
 
-.. automodule:: pubsub.abstractions
-   :members:
-   :undoc-members:
-   :show-inheritance:
+.. autofunction:: pubsub.publish
+
+.. autofunction:: pubsub.subscribe
+
+.. autofunction:: pubsub.fetch
