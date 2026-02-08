@@ -312,32 +312,47 @@ class TestSubscribe(unittest.TestCase):
     def test_subscribe_callback_exception(self):
         """Test that subscribe continues on callback exception."""
         topic = "test.subscribe.exception"
-        channel = Channel(topic=topic)
 
-        with channel:
-            # Publish messages in a separate thread
-            def publisher():
-                time.sleep(0.05)
-                publish(topic, b"message 1")
-                publish(topic, b"message 2")
-
-            pub_thread = threading.Thread(target=publisher)
-            pub_thread.start()
-
-            # Callback that raises exception on first message
+        def subscriber_process(topic, result_queue):
+            """Subprocess that subscribes with callback that raises exception."""
+            channel = Channel(topic=topic)
+            received = []
             call_count = [0]
-            def callback(message):
-                call_count[0] += 1
-                if call_count[0] == 1:
-                    raise RuntimeError("Test exception")
-                self.received_messages.append(message)
 
-            count = subscribe(channel, callback, timeout_seconds=0.5)
-            pub_thread.join()
+            with channel:
+                def callback(message):
+                    call_count[0] += 1
+                    if call_count[0] == 1:
+                        raise RuntimeError("Test exception")
+                    received.append(message.content.decode())
 
-            # Should process both messages despite exception
-            assert count == 2
-            assert len(self.received_messages) == 1  # Only second message added
+                count = subscribe(channel, callback, timeout_seconds=0.5)
+
+            # Send results back to parent
+            result_queue.put({"count": count, "received": received})
+
+        # Create queue for results
+        result_queue = multiprocessing.Queue()
+
+        # Start subscriber in subprocess
+        sub_proc = multiprocessing.Process(target=subscriber_process, args=(topic, result_queue))
+        sub_proc.start()
+
+        # Publish messages
+        time.sleep(0.1)  # Ensure subscriber is ready
+        publish(topic, b"message 1")
+        publish(topic, b"message 2")
+
+        # Wait for subprocess
+        sub_proc.join()
+
+        # Get results from queue
+        result = result_queue.get(timeout=1)
+
+        # Should process both messages despite exception
+        assert result["count"] == 2
+        assert len(result["received"]) == 1  # Only second message added
+        assert result["received"][0] == "message 2"
 
     def test_subscribe_zero_timeout_exits_quickly(self):
         """Test that timeout=0 means listen indefinitely (needs manual stop)."""
