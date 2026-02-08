@@ -1,12 +1,6 @@
 API Reference
 =============
 
-.. automodule:: pubsub
-   :members:
-   :undoc-members:
-   :show-inheritance:
-   :imported-members:
-
 This documents all public API members available directly from the ``pubsub`` package.
 
 Classes
