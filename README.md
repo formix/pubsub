@@ -78,7 +78,8 @@ with channel:
     def handle_message(msg):
         print(f"[{msg.topic}] {msg.content.decode()}")
 
-    subscribe(channel, handle_message, timeout_seconds=10.0)
+    # Listens indefinitely until SIGTERM/SIGINT received
+    subscribe(channel, handle_message)
 
 # Elsewhere in your code, publish to concrete topics
 # The wildcard channel above will receive these messages
@@ -103,10 +104,12 @@ channel2 = Channel(topic=topic)
 with channel1, channel2:
     # Start two subscriber threads (in production, these would be separate processes)
     def subscriber1():
-        subscribe(channel1, lambda msg: print(f"Sub1: {msg.content}"), timeout_seconds=5.0)
+        # In production, use process.terminate() to signal shutdown
+        subscribe(channel1, lambda msg: print(f"Sub1: {msg.content}"), timeout_seconds=2.0)
 
     def subscriber2():
-        subscribe(channel2, lambda msg: print(f"Sub2: {msg.content}"), timeout_seconds=5.0)
+        # Use timeout for demo; in production, terminate via signal
+        subscribe(channel2, lambda msg: print(f"Sub2: {msg.content}"), timeout_seconds=2.0)
 
     thread1 = threading.Thread(target=subscriber1)
     thread2 = threading.Thread(target=subscriber2)

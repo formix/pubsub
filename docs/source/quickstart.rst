@@ -29,10 +29,11 @@ Basic Publish-Subscribe
        print(f"Published to {count} channel(s)")
 
        # Subscribe with a callback
+       # Listens indefinitely; use SIGTERM/SIGINT for graceful shutdown
        def handle_message(message):
            print(f"Received: {message.content.decode()}")
 
-       subscribe(channel, handle_message, timeout_seconds=5.0)
+       subscribe(channel, handle_message)
 
 Fetching Messages Manually
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -73,7 +74,8 @@ Use wildcards to subscribe to multiple topics:
        def handle_message(msg):
            print(f"[{msg.topic}] {msg.content.decode()}")
 
-       subscribe(channel, handle_message, timeout_seconds=10.0)
+       # Listens indefinitely; terminate with SIGTERM/SIGINT
+       subscribe(channel, handle_message)
 
    # Publish to concrete topics
    publish("news.sports", b"Game results")
@@ -99,12 +101,14 @@ Multiple subscribers can listen independently to the same topic:
        with channel:
            def handle(msg):
                print(f"Subscriber 1: {msg.content.decode()}")
+           # Use timeout for demo; in production, terminate via signal
            subscribe(channel, handle, timeout_seconds=5.0)
 
    def subscriber2(channel):
        with channel:
            def handle(msg):
                print(f"Subscriber 2: {msg.content.decode()}")
+           # Use timeout for demo; in production, terminate via signal
            subscribe(channel, handle, timeout_seconds=5.0)
 
    # Start subscribers in separate threads (use processes for true parallelism)
@@ -149,4 +153,4 @@ Best Practices
 2. **Always use context managers** - Ensures proper resource cleanup
 3. **Publish to concrete topics** - Wildcards are only for subscribing
 4. **Use meaningful topic hierarchies** - e.g., ``app.service.event``
-5. **Handle message timeouts gracefully** - Subscribe operations can timeout
+5. **Terminate subscribers gracefully** - Use SIGTERM/SIGINT for clean shutdown; timeouts are optional for demos or time-bound operations

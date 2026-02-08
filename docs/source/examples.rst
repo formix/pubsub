@@ -26,7 +26,8 @@ Create an event broadcasting system where multiple services listen for events:
                    print(f"Sending goodbye email for: {msg.content.decode()}")
 
            print("Email service started")
-           subscribe(channel, handle_user_event, timeout_seconds=60.0)
+           # Listens indefinitely; terminate process with SIGTERM/SIGINT for graceful shutdown
+           subscribe(channel, handle_user_event)
 
    if __name__ == "__main__":
        email_service()
@@ -44,7 +45,8 @@ Create an event broadcasting system where multiple services listen for events:
                print(f"Logging analytics: {msg.topic} - {msg.content.decode()}")
 
            print("Analytics service started")
-           subscribe(channel, handle_user_event, timeout_seconds=60.0)
+           # Listens indefinitely; terminate process with SIGTERM/SIGINT for graceful shutdown
+           subscribe(channel, handle_user_event)
 
    if __name__ == "__main__":
        analytics_service()
@@ -75,9 +77,13 @@ Create an event broadcasting system where multiple services listen for events:
    # Wait for services to process
    time.sleep(2)
 
-   # Cleanup
+   # Gracefully terminate services (sends SIGTERM/SIGINT)
    email_proc.terminate()
    analytics_proc.terminate()
+   
+   # Wait for processes to finish cleaning up
+   email_proc.join(timeout=5)
+   analytics_proc.join(timeout=5)
 
 Task Queue Pattern
 -------------------
@@ -161,7 +167,8 @@ Collect logs from multiple services:
                    print(log_line.strip())
 
                print("Log aggregator started")
-               subscribe(channel, handle_log, timeout_seconds=300.0)
+               # Listens indefinitely; terminate process with SIGTERM/SIGINT for graceful shutdown
+               subscribe(channel, handle_log)
 
    if __name__ == "__main__":
        log_aggregator()
@@ -204,7 +211,8 @@ Simple request-response using two channels:
                print(f"Processed request {request_id}")
 
            print("Server started")
-           subscribe(request_channel, handle_request, timeout_seconds=60.0)
+           # Listens indefinitely; terminate process with SIGTERM/SIGINT for graceful shutdown
+           subscribe(request_channel, handle_request)
 
    if __name__ == "__main__":
        server()
