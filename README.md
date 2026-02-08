@@ -5,12 +5,15 @@ languages) interprocess communications.
 
 ## Features
 
+- **Interprocess communication** designed for true parallelism across separate processes
 - **Topic-based routing** with wildcard support (`=` for single word, `+` for multiple words)
 - **Multiple subscribers** can listen to the same topic independently
 - **Message persistence** via file system until consumed
 - **Non-blocking operations** using FIFO queues
 - **Context manager support** for automatic resource cleanup
-- **Thread-safe** message publishing and consumption
+- **Thread-safe** operations as a bonus (though designed primarily for separate processes)
+
+> **Design Philosophy:** This library is designed for **interprocess communication**. Each subscriber typically runs in its own process, enabling true parallel execution without GIL limitations. While thread-safe for convenience, the real power comes from process-based parallelism.
 
 ## Installation
 
@@ -25,12 +28,13 @@ pip install formix-pubsub
 ```python
 from pubsub import Channel, publish, subscribe
 
-# Create a channel for a topic
+# Create a channel for a specific topic
+# Note: Channels can subscribe using wildcards, but publish requires concrete topics
 channel = Channel(topic="news.sports")
 
 # Use context manager to ensure proper cleanup
 with channel:
-    # Publish a message
+    # Publish to a concrete topic (no wildcards allowed when publishing)
     count = publish("news.sports", b"Team wins championship!")
     print(f"Published to {count} channel(s)")
     
@@ -63,13 +67,11 @@ with channel:
 ### Wildcard Topics
 
 ```python
-from pubsub import Channel, subscribe
+from pubsub import Channel, publish, subscribe
 
-# Single word wildcard (=) - matches one word
+# Channels can use wildcards to subscribe to multiple topics
+# '=' matches a single word, '+' matches one or more words
 channel = Channel(topic="news.=")  # Matches: news.sports, news.tech, news.world
-
-# Multiple word wildcard (+) - matches one or more words
-channel = Channel(topic="logs.+")  # Matches: logs.error, logs.app.debug, logs.system.critical
 
 with channel:
     # This channel will receive all matching messages
@@ -77,9 +79,16 @@ with channel:
         print(f"[{msg.topic}] {msg.content.decode()}")
     
     subscribe(channel, handle_message, timeout_seconds=10.0)
+
+# Elsewhere in your code, publish to concrete topics
+# The wildcard channel above will receive these messages
+publish("news.sports", b"Game results")
+publish("news.tech", b"New release")
 ```
 
 ### Multiple Subscribers
+
+> **Note:** This example uses threading for demonstration convenience. In production, subscribers typically run in **separate processes** for true parallelism without GIL limitations.
 
 ```python
 import threading
@@ -92,7 +101,7 @@ channel1 = Channel(topic=topic)
 channel2 = Channel(topic=topic)
 
 with channel1, channel2:
-    # Start two subscriber threads
+    # Start two subscriber threads (in production, these would be separate processes)
     def subscriber1():
         subscribe(channel1, lambda msg: print(f"Sub1: {msg.content}"), timeout_seconds=5.0)
     
@@ -112,6 +121,8 @@ with channel1, channel2:
 ```
 
 ### Remote Procedure Call (RPC) Pattern
+
+> **Note:** This example uses threading for demonstration. In production, the server and client would typically run in **separate processes** or even on different machines sharing a filesystem.
 
 ```python
 import threading
@@ -283,7 +294,6 @@ Represents a pub/sub message.
 - `timestamp` (int): Message creation timestamp in microseconds
 - `topic` (str): Message topic
 - `content` (bytes): Message payload
-- `content_length` (int): Length of content in bytes
 - `headers` (dict): Dictionary of string key-value pairs containing message metadata
 
 ## Configuration
@@ -322,6 +332,17 @@ channel = Channel(topic="app.logs")
 
 ## Architecture
 
+### Interprocess Communication
+
+This library uses filesystem-based IPC mechanisms, making it ideal for **process-level parallelism**:
+
+- Each subscriber process runs independently with its own Python interpreter
+- No shared memory between processes means no GIL contention
+- True parallel execution across multiple CPU cores
+- Publishers and subscribers can be completely separate applications
+
+The thread-safe operations are a convenience feature, but the architecture shines when used across separate processes.
+
 ### Storage Location
 
 Messages are stored in `/dev/shm/pubsub/` (tmpfs) by default for fast access. Each channel creates a directory containing:
@@ -330,7 +351,7 @@ Messages are stored in `/dev/shm/pubsub/` (tmpfs) by default for fast access. Ea
 
 ### Message Flow
 
-1. **Publish**: Message written to tmp, then hard-linked to each matching channel directory, ID written to FIFO
+1. **Publish**: Message are hard-linked to each matching channel directory, ID written to matching FIFOs
 2. **Fetch/Subscribe**: Read ID from FIFO, load message from file, delete message file
 3. **Cleanup**: Channel cleanup removes directory and all unconsumed messages
 
@@ -338,8 +359,6 @@ Messages are stored in `/dev/shm/pubsub/` (tmpfs) by default for fast access. Ea
 
 - `=` matches a single word: `logs.=.error` matches `logs.app.error` but not `logs.error`
 - `+` matches one or more words: `logs.+` matches `logs.error`, `logs.app.error`, `logs.app.module.error`
-
-Wildcards are converted to regex patterns for matching.
 
 ## Testing
 
@@ -358,7 +377,7 @@ python -m unittest tests.test_channel.TestChannel.test_channel_creation -v
 
 ## Requirements
 
-- Python 3.12+
+- Python 3.10+
 - Linux/Unix with tmpfs support (`/dev/shm`)
 - FIFO (named pipes) support
 
