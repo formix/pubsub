@@ -93,7 +93,7 @@ class TestPublish(unittest.TestCase):
 
         # Should raise ValueError due to invalid characters
         with self.assertRaises(ValueError) as context:
-            channel = Channel(topic=topic)
+            _ = Channel(topic=topic)
 
         assert "invalid characters" in str(context.exception).lower()
 
@@ -105,7 +105,8 @@ class TestPublish(unittest.TestCase):
             publish(topic, b"test data")
 
         # Verify error message mentions allowed characters
-        assert "a-zA-Z0-9.-" in str(context.exception) or "alphanumeric" in str(context.exception).lower()
+        assert "a-zA-Z0-9.-" in str(context.exception) or \
+               "alphanumeric" in str(context.exception).lower()
 
     def test_publish_with_wildcard_plus(self):
         """Test that publishing to a topic with + wildcard raises ValueError."""
@@ -115,7 +116,8 @@ class TestPublish(unittest.TestCase):
             publish(topic, b"test data")
 
         # Verify error message mentions allowed characters
-        assert "a-zA-Z0-9.-" in str(context.exception) or "alphanumeric" in str(context.exception).lower()
+        assert "a-zA-Z0-9.-" in str(context.exception) or \
+               "alphanumeric" in str(context.exception).lower()
 
 
 class TestFetch(unittest.TestCase):
@@ -426,8 +428,10 @@ class TestIntegration(unittest.TestCase):
         result_queue = multiprocessing.Queue()
 
         # Start two subscribers in separate subprocesses
-        sub1_proc = multiprocessing.Process(target=subscriber_process, args=(topic, result_queue, 1))
-        sub2_proc = multiprocessing.Process(target=subscriber_process, args=(topic, result_queue, 2))
+        sub1_proc = multiprocessing.Process(target=subscriber_process,
+                                            args=(topic, result_queue, 1))
+        sub2_proc = multiprocessing.Process(target=subscriber_process,
+                                            args=(topic, result_queue, 2))
         sub1_proc.start()
         sub2_proc.start()
 
@@ -538,8 +542,10 @@ class TestIntegration(unittest.TestCase):
         result_queue = multiprocessing.Queue()
 
         # Start both subscribers in separate subprocesses
-        sub1_proc = multiprocessing.Process(target=subscriber_process, args=(topic1, result_queue, 1))
-        sub2_proc = multiprocessing.Process(target=subscriber_process, args=(topic2, result_queue, 2))
+        sub1_proc = multiprocessing.Process(target=subscriber_process,
+                                            args=(topic1, result_queue, 1))
+        sub2_proc = multiprocessing.Process(target=subscriber_process,
+                                            args=(topic2, result_queue, 2))
         sub1_proc.start()
         sub2_proc.start()
 
