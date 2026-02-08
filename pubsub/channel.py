@@ -1,5 +1,6 @@
 """Channel class for pubsub system using shared memory and FIFO queues."""
 
+import logging
 import os
 import random
 import re
@@ -45,6 +46,12 @@ class Channel:
         # Create the channel directory and FIFO
         self._create_channel()
 
+    @property
+    def is_open(self) -> bool:
+        """Check if the channel's FIFO is currently open for reading."""
+        return self._fp != -1
+
+
     def _generate_random_id(self) -> str:
         """Generate a random 12-character string."""
         return "".join(random.choices(string.ascii_letters + string.digits, k=12))
@@ -88,10 +95,6 @@ class Channel:
         except OSError as e:
             raise RuntimeError(f"Failed to create channel directory or FIFO: {e}") from e
 
-    @property
-    def is_open(self) -> bool:
-        """Check if the channel's FIFO is currently open for reading."""
-        return self._fp != -1
 
     def open(self) -> None:
         """
@@ -108,6 +111,7 @@ class Channel:
         except OSError as e:
             raise OSError(f"Failed to open queue for reading: {e}") from e
 
+
     def close(self) -> None:
         """
         Close and clean up the channel by removing unconsumed messages, the FIFO, and
@@ -117,23 +121,50 @@ class Channel:
         channel is disposed, preventing resource leaks.
         """
         # Close the file descriptor if it's open
-        if self._fp != -1:
+        if self._fp == -1:
+            return  # Already closed or never opened
+
+        try:
+            os.close(self._fp)
+            self._fp = -1
+        except OSError as e:
+            raise RuntimeError(
+                f"Failed to close channel file descriptor {self.directory_name}: {e}"
+            ) from e
+        finally:
+            Channel._delete_recursive(self.directory_path)
+
+    @staticmethod
+    def _delete_recursive(dir: Path) -> None:
+        """Recursively delete a directory and all its contents."""
+        if not dir.exists():
+            return
+        for item in dir.iterdir():
             try:
-                os.close(self._fp)
-                self._fp = -1
+                if item.is_dir():
+                    Channel._delete_recursive(item)
+                else:
+                    item.unlink()
             except OSError as e:
-                raise RuntimeError(
-                    f"Failed to close channel file descriptor {self.directory_name}: {e}"
-                ) from e
-            finally:
-                try:
-                    for item in self.directory_path.iterdir():
-                        item.unlink()
-                    self.directory_path.rmdir()
-                except OSError as e:
-                    raise RuntimeError(
-                        f"Failed to cleanup channel {self.directory_name}: {e}"
-                    ) from e
+                logging.warning(f"Failed to delete {item}: {e}")
+        dir.rmdir()
+
+    @staticmethod
+    def cleanup_inactive() -> None:
+        """
+        Clean up all inactive channels in the pubsub base directory.
+
+        Inactive channels are those where the associated process is no longer running.
+        This method removes their directories and any unconsumed messages to free up
+        resources.
+        """
+        for path in Channel.inactive_paths():
+            try:
+                Channel._delete_recursive(path)
+                logging.info(f"Cleaned up inactive channel at {path}")
+            except OSError as e:
+                logging.warning(f"Failed to clean up inactive channel at {path}: {e}")
+
 
     @staticmethod
     def active_paths() -> list[Path]:

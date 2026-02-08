@@ -146,11 +146,11 @@ def subscribe(
         ValueError: If timeout_seconds is negative
 
     """
-    if not channel.is_open:
-        raise RuntimeError("Channel must be open to subscribe")
-
     if timeout_seconds < 0:
         raise ValueError("timeout_seconds must be non-negative")
+
+    if not channel.is_open:
+        raise RuntimeError("Channel must be open to subscribe")
 
     # Set up signal handler for graceful shutdown
     shutdown_requested = False
