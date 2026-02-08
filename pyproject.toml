@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "formix-pubsub"
-version = "0.9.0"
+version = "0.9.1"
 description = "A serverless Python publish-subscribe interprocess messaging library"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -34,6 +34,7 @@ dependencies = []
 dev = [
     "pytest>=7.0",
     "pytest-cov",
+    "green",
     "ruff",
     "mypy",
     "pre-commit",
@@ -50,7 +51,7 @@ docs = [
 [project.urls]
 "Homepage" = "https://github.com/formix/pubsub"
 "Bug Tracker" = "https://github.com/formix/pubsub/issues"
-"Documentation" = "https://github.com/formix/pubsub"
+"Documentation" = "https://pubsub.readthedocs.io/"
 "Source Code" = "https://github.com/formix/pubsub"
 
 [tool.setuptools.packages.find]

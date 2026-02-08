@@ -26,7 +26,8 @@ Create an event broadcasting system where multiple services listen for events:
                    print(f"Sending goodbye email for: {msg.content.decode()}")
 
            print("Email service started")
-           subscribe(channel, handle_user_event, timeout_seconds=60.0)
+           # Listens indefinitely; terminate process with SIGTERM/SIGINT for graceful shutdown
+           subscribe(channel, handle_user_event)
 
    if __name__ == "__main__":
        email_service()
@@ -44,7 +45,8 @@ Create an event broadcasting system where multiple services listen for events:
                print(f"Logging analytics: {msg.topic} - {msg.content.decode()}")
 
            print("Analytics service started")
-           subscribe(channel, handle_user_event, timeout_seconds=60.0)
+           # Listens indefinitely; terminate process with SIGTERM/SIGINT for graceful shutdown
+           subscribe(channel, handle_user_event)
 
    if __name__ == "__main__":
        analytics_service()
@@ -75,9 +77,13 @@ Create an event broadcasting system where multiple services listen for events:
    # Wait for services to process
    time.sleep(2)
 
-   # Cleanup
+   # Gracefully terminate services (sends SIGTERM/SIGINT)
    email_proc.terminate()
    analytics_proc.terminate()
+
+   # Wait for processes to finish cleaning up
+   email_proc.join(timeout=5)
+   analytics_proc.join(timeout=5)
 
 Task Queue Pattern
 -------------------
@@ -161,7 +167,8 @@ Collect logs from multiple services:
                    print(log_line.strip())
 
                print("Log aggregator started")
-               subscribe(channel, handle_log, timeout_seconds=300.0)
+               # Listens indefinitely; terminate process with SIGTERM/SIGINT for graceful shutdown
+               subscribe(channel, handle_log)
 
    if __name__ == "__main__":
        log_aggregator()
@@ -179,59 +186,83 @@ Collect logs from multiple services:
 Request-Response Pattern
 -------------------------
 
-Simple request-response using two channels:
+Request-response pattern using headers for routing. The server listens on a topic
+with explicit action, and clients use headers to specify where responses should be sent.
 
 .. code-block:: python
 
    # server.py
    from pubsub import Channel, subscribe, publish
-   import json
 
-   def server():
-       request_channel = Channel(topic="requests")
+   def rpc_server():
+       # Server listens on topic with explicit action (no PID needed)
+       request_channel = Channel(topic="rpc.multiply")
 
        with request_channel:
-           def handle_request(msg):
-               request = json.loads(msg.content.decode())
-               request_id = request['id']
+           def handle_request(request):
+               # Extract routing info from headers
+               response_topic = request.headers.get("response-topic")
+               correlation_id = request.headers.get("correlation-id")
 
-               # Process request
-               result = {"id": request_id, "result": request['value'] * 2}
+               if not response_topic or not correlation_id:
+                   print("Invalid request: missing headers")
+                   return
 
-               # Send response
-               response_topic = f"responses.{request_id}"
-               publish(response_topic, json.dumps(result).encode())
-               print(f"Processed request {request_id}")
+               # Process the request
+               value = int(request.content.decode())
+               result = value * 2
 
-           print("Server started")
-           subscribe(request_channel, handle_request, timeout_seconds=60.0)
+               # Send response back to client with correlation ID
+               response_headers = {
+                   "correlation-id": correlation_id
+               }
+               publish(response_topic, str(result).encode(), headers=response_headers)
+               print(f"Processed request {correlation_id}: {value} * 2 = {result}")
+
+           print("Server started on rpc.multiply")
+           # Listens indefinitely; terminate process with SIGTERM/SIGINT for graceful shutdown
+           subscribe(request_channel, handle_request)
 
    if __name__ == "__main__":
-       server()
+       rpc_server()
 
 .. code-block:: python
 
    # client.py
    from pubsub import Channel, publish, fetch
-   import json
+   import os
+   import time
    import uuid
 
-   def send_request(value):
-       request_id = str(uuid.uuid4())
-       response_channel = Channel(topic=f"responses.{request_id}")
+   def call_multiply(value):
+       # Generate unique correlation ID for this request
+       correlation_id = str(uuid.uuid4())
+
+       # Client creates its own response channel with PID
+       client_pid = os.getpid()
+       response_topic = f"rpc.client.{client_pid}"
+       response_channel = Channel(topic=response_topic)
 
        with response_channel:
-           # Send request
-           request = {"id": request_id, "value": value}
-           publish("requests", json.dumps(request).encode())
+           # Send request with headers specifying response routing
+           request_headers = {
+               "response-topic": response_topic,
+               "correlation-id": correlation_id
+           }
+
+           print(f"Client sending request with correlation-id: {correlation_id}")
+           publish("rpc.multiply", str(value).encode(), headers=request_headers)
 
            # Wait for response
-           response_msg = fetch(response_channel, timeout_seconds=5.0)
-           if response_msg:
-               response = json.loads(response_msg.content.decode())
-               return response['result']
+           time.sleep(1)
+           response = fetch(response_channel)
+           if response:
+               response_correlation_id = response.headers.get("correlation-id")
+               if response_correlation_id == correlation_id:
+                   print(f"Received response for {response_correlation_id}")
+                   return int(response.content.decode())
            return None
 
    if __name__ == "__main__":
-       result = send_request(21)
+       result = call_multiply(21)
        print(f"Result: {result}")  # 42

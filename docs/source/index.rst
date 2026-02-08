@@ -51,11 +51,11 @@ Quick Example
        # Publish a message
        publish("news.sports", b"Team wins championship!")
        
-       # Subscribe with a callback
+       # Subscribe with a callback (listens indefinitely)
        def handle_message(message):
            print(f"Received: {message.content.decode()}")
        
-       subscribe(channel, handle_message, timeout_seconds=5.0)
+       subscribe(channel, handle_message)
 
 Indices and tables
 ==================

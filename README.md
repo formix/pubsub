@@ -78,7 +78,8 @@ with channel:
     def handle_message(msg):
         print(f"[{msg.topic}] {msg.content.decode()}")
 
-    subscribe(channel, handle_message, timeout_seconds=10.0)
+    # Listens indefinitely until SIGTERM/SIGINT received
+    subscribe(channel, handle_message)
 
 # Elsewhere in your code, publish to concrete topics
 # The wildcard channel above will receive these messages
@@ -103,10 +104,12 @@ channel2 = Channel(topic=topic)
 with channel1, channel2:
     # Start two subscriber threads (in production, these would be separate processes)
     def subscriber1():
-        subscribe(channel1, lambda msg: print(f"Sub1: {msg.content}"), timeout_seconds=5.0)
+        # In production, use process.terminate() to signal shutdown
+        subscribe(channel1, lambda msg: print(f"Sub1: {msg.content}"), timeout_seconds=2.0)
 
     def subscriber2():
-        subscribe(channel2, lambda msg: print(f"Sub2: {msg.content}"), timeout_seconds=5.0)
+        # Use timeout for demo; in production, terminate via signal
+        subscribe(channel2, lambda msg: print(f"Sub2: {msg.content}"), timeout_seconds=2.0)
 
     thread1 = threading.Thread(target=subscriber1)
     thread2 = threading.Thread(target=subscriber2)
@@ -222,13 +225,13 @@ with channel:
 Publishes a message to all matching channels.
 
 ```python
-publish(topic: str, data: bytes, headers: dict = None) -> int
+publish(topic: str, data: bytes, headers: Header | None = None) -> int
 ```
 
 **Parameters:**
 - `topic` (str): Topic to publish to (only alphanumeric characters, dots, and hyphens allowed: `[a-zA-Z0-9.-]`)
 - `data` (bytes): Message payload
-- `headers` (dict): Optional dictionary of string key-value pairs for metadata
+- `headers` (Header | None): Optional dictionary with string keys and scalar values (str, int, float, bool, None) for metadata
 
 **Returns:**
 - `int`: Number of channels the message was published to
@@ -240,10 +243,13 @@ publish(topic: str, data: bytes, headers: dict = None) -> int
 ```python
 from pubsub import publish
 
-# Publish with custom headers
+# Publish with custom headers (supports str, int, float, bool, None)
 headers = {
     "priority": "high",
-    "correlation-id": "12345"
+    "correlation-id": "12345",
+    "retry-count": 3,
+    "temperature": 98.6,
+    "verified": True
 }
 publish("app.events", b"Event data", headers=headers)
 ```
@@ -285,6 +291,33 @@ subscribe(channel: Channel, callback: Callable[[Message], None], timeout_seconds
 
 **Note:** The channel must be opened (use `with channel:`) before calling `subscribe()`.
 
+### Type Aliases
+
+#### Header
+
+Type alias for message headers.
+
+```python
+Header = dict[str, HeaderValueTypes]
+```
+
+A dictionary with string keys and scalar values used to store message metadata.
+
+#### HeaderValueTypes
+
+Type alias for valid header value types.
+
+```python
+HeaderValueTypes = str | int | float | bool | None
+```
+
+Headers support the following scalar types as values:
+- `str`: Text strings
+- `int`: Integers
+- `float`: Floating-point numbers
+- `bool`: Boolean values (True/False)
+- `None`: Null value
+
 ### Message
 
 Represents a pub/sub message.
@@ -294,7 +327,7 @@ Represents a pub/sub message.
 - `timestamp` (int): Message creation timestamp in microseconds
 - `topic` (str): Message topic
 - `content` (bytes): Message payload
-- `headers` (dict): Dictionary of string key-value pairs containing message metadata
+- `headers` (Header): Dictionary with string keys and scalar values (str, int, float, bool, None) containing message metadata
 
 ## Configuration
 

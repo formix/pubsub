@@ -46,8 +46,12 @@ if ! $PYTHON -c "import sphinx" 2>/dev/null; then
     MISSING_PACKAGES+=("sphinx")
 fi
 
-if ! $PYTHON -c "import pytest" 2>/dev/null; then
-    echo -e "${YELLOW}Warning: pytest not found, will use unittest${NC}"
+# Check for test runners (not required, but recommended)
+if ! $PYTHON -c "import green" 2>/dev/null; then
+    if ! $PYTHON -c "import pytest" 2>/dev/null; then
+        echo -e "${YELLOW}Warning: Neither 'green' nor 'pytest' found, will use unittest${NC}"
+        echo -e "${YELLOW}For better test output, consider installing: pip install green${NC}"
+    fi
 fi
 
 if [ ${#MISSING_PACKAGES[@]} -gt 0 ]; then

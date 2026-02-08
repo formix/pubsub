@@ -14,11 +14,20 @@ SUPPORTED_MESSAGE_VERSIONS = [MESSAGE_FORMAT_VERSION]
 # Magic number to identify message format ("PMSG" in ASCII)
 MESSAGE_MAGIC_NUMBER = 0x504D5347
 
+# Scalar types allowed as header values
+HeaderValueTypes = str | int | float | bool | None
+"""Type alias for valid header value types. Headers can contain strings, integers,
+floats, booleans, or None as values."""
+
+# Dictionary type for message headers
+Header = dict[str, HeaderValueTypes]
+"""Type alias for message headers. A dictionary with string keys and scalar values
+(str, int, float, bool, or None). Used to store metadata about messages."""
 
 class Message:
     """Represents a message in the pubsub system."""
 
-    def __init__(self, topic: str, content: bytes, headers: dict | None = None):
+    def __init__(self, topic: str, content: bytes, headers: Header | None = None):
         """
         Initialize a new message.
 

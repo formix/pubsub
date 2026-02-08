@@ -14,8 +14,11 @@ echo -e "${YELLOW}[2/5] Running tests...${NC}"
 # Use PYTHON from environment or default
 PYTHON=${PYTHON:-python3}
 
-# Run tests
-if $PYTHON -c "import pytest" 2>/dev/null; then
+# Run tests with best available test runner
+if $PYTHON -c "import green" 2>/dev/null; then
+    echo "Running tests with green..."
+    $PYTHON -m green tests -vv
+elif $PYTHON -c "import pytest" 2>/dev/null; then
     echo "Running tests with pytest..."
     $PYTHON -m pytest tests/ -v
 else
