@@ -41,6 +41,10 @@ if ! $PYTHON -c "import wheel" 2>/dev/null; then
     MISSING_PACKAGES+=("wheel")
 fi
 
+if ! $PYTHON -c "import sphinx" 2>/dev/null; then
+    MISSING_PACKAGES+=("sphinx")
+fi
+
 if [ ${#MISSING_PACKAGES[@]} -gt 0 ]; then
     echo -e "${RED}Error: Missing required packages: ${MISSING_PACKAGES[*]}${NC}"
     echo -e "${YELLOW}Please install them with:${NC}"
@@ -67,10 +71,10 @@ if [ -z "$LATEST_TAG" ]; then
     echo "No existing git tags found."
 else
     echo "Latest git tag: $LATEST_TAG"
-    
+
     # Remove 'v' prefix if present for comparison
     LATEST_TAG_CLEAN=${LATEST_TAG#v}
-    
+
     if [ "$VERSION" == "$LATEST_TAG_CLEAN" ]; then
         echo -e "${RED}Error: Version $VERSION already exists as git tag.${NC}"
         echo "Please update the version in pyproject.toml before deploying."
@@ -92,6 +96,14 @@ $PYTHON -m build
 echo -e "${YELLOW}Checking package...${NC}"
 $PYTHON -m twine check dist/*
 
+# Build documentation
+echo -e "${YELLOW}Building documentation...${NC}"
+cd docs
+make clean
+make html
+cd ..
+echo -e "${GREEN}Documentation built successfully.${NC}"
+
 # Create git tag
 echo -e "${YELLOW}Creating git tag $VERSION...${NC}"
 git tag -a "$VERSION" -m "Release $VERSION"
@@ -108,3 +120,6 @@ echo -e "${GREEN}=== Deployment Complete ===${NC}"
 echo "Version: $VERSION"
 echo "Tag: $VERSION"
 echo "Installation: pip install formix-pubsub==$VERSION"
+echo ""
+echo -e "${YELLOW}Note: ReadTheDocs will automatically build documentation from the new tag.${NC}"
+echo "Check: https://readthedocs.org/projects/formix-pubsub/"

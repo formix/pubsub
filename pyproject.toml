@@ -7,7 +7,7 @@ name = "formix-pubsub"
 version = "0.9.0"
 description = "A serverless Python publish-subscribe interprocess messaging library"
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 authors = [
     {name = "formix", email = "formix@users.noreply.github.com"}
 ]
@@ -21,7 +21,6 @@ classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",

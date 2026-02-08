@@ -37,11 +37,11 @@ with channel:
     # Publish to a concrete topic (no wildcards allowed when publishing)
     count = publish("news.sports", b"Team wins championship!")
     print(f"Published to {count} channel(s)")
-    
+
     # Subscribe with a callback
     def handle_message(message):
         print(f"Received: {message.content.decode()}")
-    
+
     subscribe(channel, handle_message, timeout_seconds=5.0)
 ```
 
@@ -56,7 +56,7 @@ with channel:
     # Publish some messages
     publish("alerts", b"System starting")
     publish("alerts", b"All systems operational")
-    
+
     # Fetch messages one at a time
     message = fetch(channel)
     while message:
@@ -77,7 +77,7 @@ with channel:
     # This channel will receive all matching messages
     def handle_message(msg):
         print(f"[{msg.topic}] {msg.content.decode()}")
-    
+
     subscribe(channel, handle_message, timeout_seconds=10.0)
 
 # Elsewhere in your code, publish to concrete topics
@@ -104,18 +104,18 @@ with channel1, channel2:
     # Start two subscriber threads (in production, these would be separate processes)
     def subscriber1():
         subscribe(channel1, lambda msg: print(f"Sub1: {msg.content}"), timeout_seconds=5.0)
-    
+
     def subscriber2():
         subscribe(channel2, lambda msg: print(f"Sub2: {msg.content}"), timeout_seconds=5.0)
-    
+
     thread1 = threading.Thread(target=subscriber1)
     thread2 = threading.Thread(target=subscriber2)
     thread1.start()
     thread2.start()
-    
+
     # Publish - both subscribers receive the message
     publish(topic, b"Hello everyone!")
-    
+
     thread1.join()
     thread2.join()
 ```
@@ -132,32 +132,32 @@ from pubsub import Channel, publish, subscribe, fetch
 # Server: Process requests and send responses
 def rpc_server():
     request_channel = Channel(topic="rpc.requests")
-    
+
     with request_channel:
         def handle_request(request):
             print(f"Server received: {request.content.decode()}")
-            
+
             # Extract response topic and correlation ID from headers
             response_topic = request.headers.get("response-topic")
             correlation_id = request.headers.get("correlation-id")
-            
+
             if response_topic and correlation_id:
                 # Process the request (simulate work)
                 result = f"Processed: {request.content.decode()}"
-                
+
                 # Send response with correlation ID
                 response_headers = {
                     "correlation-id": correlation_id
                 }
                 publish(response_topic, result.encode(), headers=response_headers)
                 print(f"Server sent response with correlation-id: {correlation_id}")
-        
+
         subscribe(request_channel, handle_request, timeout_seconds=5.0)
 
 # Client: Send request and wait for response
 def rpc_client():
     response_channel = Channel(topic="rpc.responses.client1")
-    
+
     with response_channel:
         # Create request with response topic and correlation ID
         request_data = b"Calculate 2 + 2"
@@ -165,10 +165,10 @@ def rpc_client():
             "response-topic": "rpc.responses.client1",
             "correlation-id": str(int(time.time() * 1000000))  # Use timestamp as correlation ID
         }
-        
+
         print(f"Client sending request with correlation-id: {request_headers['correlation-id']}")
         publish("rpc.requests", request_data, headers=request_headers)
-        
+
         # Wait for response
         response = fetch(response_channel)
         if response:
@@ -374,6 +374,14 @@ python -m unittest tests.test_pubsub.TestPublish -v
 # Specific test
 python -m unittest tests.test_channel.TestChannel.test_channel_creation -v
 ```
+
+## Contributing
+
+Contributions are welcome! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines on:
+- Commit message conventions (Conventional Commits)
+- Development setup
+- Running tests
+- Pull request process
 
 ## Requirements
 
