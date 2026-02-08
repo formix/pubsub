@@ -10,17 +10,18 @@ from collections.abc import Callable
 
 from .abstractions import get_base_dir
 from .channel import Channel
-from .message import Message
+from .message import Header, Message
 
 
-def publish(topic: str, data: bytes, headers: dict | None = None) -> int:
+def publish(topic: str, data: bytes, headers: Header | None = None) -> int:
     """
     Publish a message to a topic.
 
     Args:
         topic: The topic to publish to (only alphanumeric, dots, and hyphens allowed)
         data: The message payload as bytes
-        headers: Optional dictionary of string key-value pairs for metadata
+        headers: Optional dictionary with string keys and scalar values
+                 (str, int, float, bool, None) for metadata
     Returns:
         The number of times the messages was published in a channel
 
