@@ -93,26 +93,23 @@ Implement a simple task queue with multiple workers:
 .. code-block:: python
 
    # worker.py
-   from pubsub import Channel, fetch
+   from pubsub import Channel, subscribe
    import multiprocessing
    import json
 
    def worker(worker_id):
        channel = Channel(topic="tasks.queue")
 
+       def process_task(message):
+           task = json.loads(message.content.decode())
+           print(f"Worker {worker_id} processing: {task['name']}")
+           # Process task...
+           time.sleep(task.get('duration', 1))
+           print(f"Worker {worker_id} completed: {task['name']}")
+
        with channel:
            print(f"Worker {worker_id} started")
-
-           while True:
-               message = fetch(channel, timeout_seconds=5.0)
-               if not message:
-                   break
-
-               task = json.loads(message.content.decode())
-               print(f"Worker {worker_id} processing: {task['name']}")
-               # Process task...
-               time.sleep(task.get('duration', 1))
-               print(f"Worker {worker_id} completed: {task['name']}")
+           subscribe(channel, process_task, timeout=5.0)
 
    if __name__ == "__main__":
        # Start multiple workers
