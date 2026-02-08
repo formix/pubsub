@@ -64,7 +64,10 @@ def publish(topic: str, data: bytes, headers: Header | None = None) -> int:
         except (OSError, BrokenPipeError) as e:
             logging.warning(f"Failed to publish message {message.id} to {queue_path}: {e}")
 
-    message_temp_file.unlink()
+    try:
+        message_temp_file.unlink()
+    except FileNotFoundError:
+        logging.debug(f"Temporary message file {message_temp_file} already removed.")
 
     return publication_count
 
