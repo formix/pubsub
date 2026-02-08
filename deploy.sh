@@ -25,6 +25,29 @@ fi
 
 echo -e "${BLUE}Version: ${GREEN}$VERSION${NC}\n"
 
+# Check for uncommitted changes
+if ! git diff-index --quiet HEAD --; then
+    echo -e "${RED}Error: You have uncommitted changes in your working directory.${NC}"
+    echo "Please commit or stash your changes before deploying."
+    echo ""
+    echo "Uncommitted changes:"
+    git status --short
+    exit 1
+fi
+
+if [ -n "$(git ls-files --others --exclude-standard)" ]; then
+    echo -e "${YELLOW}Warning: You have untracked files in your working directory.${NC}"
+    echo "Untracked files:"
+    git ls-files --others --exclude-standard
+    echo ""
+    read -p "Continue with deployment anyway? (y/N) " -n 1 -r
+    echo
+    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+        echo -e "${RED}Deployment cancelled.${NC}"
+        exit 1
+    fi
+fi
+
 # Check if this version already has a git tag
 LATEST_TAG=$(git tag --sort=-version:refname | head -1)
 
