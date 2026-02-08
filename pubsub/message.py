@@ -1,12 +1,11 @@
 """Message class for pubsub library."""
 
-from typing import BinaryIO
-import struct
 import io
-import time
-import random
 import json
-
+import random
+import struct
+import time
+from typing import BinaryIO
 
 # Message serialization format version
 MESSAGE_FORMAT_VERSION = 1
@@ -18,16 +17,11 @@ MESSAGE_MAGIC_NUMBER = 0x504D5347
 
 class Message:
     """Represents a message in the pubsub system."""
-    
-    def __init__(
-        self,
-        topic: str,
-        content: bytes,
-        headers: dict | None = None
-    ):
+
+    def __init__(self, topic: str, content: bytes, headers: dict | None = None):
         """
         Initialize a new message.
-        
+
         Args:
             topic: The topic this message belongs to
             content: The message payload as bytes
@@ -39,16 +33,15 @@ class Message:
         self.content = content
         self.headers = headers if headers is not None else {}
 
-
     @staticmethod
     def _next_id() -> int:
         """
         Generate a unique message ID based on current time in microseconds
         with the least significant 16 bits replaced by random bits.
-        
+
         This provides both time-based ordering and uniqueness even when
         multiple messages are created within the same microsecond.
-        
+
         Returns:
             A 64-bit integer ID
         """
@@ -57,11 +50,10 @@ class Message:
         random_bits = random.randint(0, 0xFFFF)
         return high_bits | random_bits
 
-
     def write(self, stream: BinaryIO) -> None:
         """
         Write the message to a binary stream.
-        
+
         Binary format:
         - 4 bytes: magic number (0x504D5347 - "PMSG")
         - 1 byte: format version (uint8)
@@ -71,45 +63,44 @@ class Message:
         - N bytes: topic (UTF-8 encoded)
         - 4 bytes: headers JSON length (uint32)
         - N bytes: headers as JSON string (UTF-8 encoded)
-        - 4 bytes: content length (uint32) 
+        - 4 bytes: content length (uint32)
         - N bytes: content
-        
+
         Args:
             stream: Binary stream to write to
         """
         # Encode strings as UTF-8
-        topic_bytes = self.topic.encode('utf-8')
+        topic_bytes = self.topic.encode("utf-8")
         headers_json = json.dumps(self.headers, ensure_ascii=False)
-        headers_bytes = headers_json.encode('utf-8')
-        
+        headers_bytes = headers_json.encode("utf-8")
+
         # Write each component to stream
-        stream.write(struct.pack('!I', MESSAGE_MAGIC_NUMBER))
-        stream.write(struct.pack('!B', MESSAGE_FORMAT_VERSION))
-        stream.write(struct.pack('!Q', self.id))
-        stream.write(struct.pack('!Q', self.timestamp))
-        stream.write(struct.pack('!I', len(topic_bytes)))
+        stream.write(struct.pack("!I", MESSAGE_MAGIC_NUMBER))
+        stream.write(struct.pack("!B", MESSAGE_FORMAT_VERSION))
+        stream.write(struct.pack("!Q", self.id))
+        stream.write(struct.pack("!Q", self.timestamp))
+        stream.write(struct.pack("!I", len(topic_bytes)))
         stream.write(topic_bytes)
-        stream.write(struct.pack('!I', len(headers_bytes)))
+        stream.write(struct.pack("!I", len(headers_bytes)))
         stream.write(headers_bytes)
-        stream.write(struct.pack('!I', len(self.content)))
+        stream.write(struct.pack("!I", len(self.content)))
         stream.write(self.content)
-    
-    
+
     @staticmethod
     def _read_exact(stream: BinaryIO, n: int) -> bytes:
         """
         Read exactly n bytes from stream, handling partial reads gracefully.
-        
+
         Continues reading until all requested bytes are received or EOF is encountered.
         This handles cases where streams (sockets, pipes) return data in chunks.
-        
+
         Args:
             stream: Stream to read from
             n: Number of bytes to read
-            
+
         Returns:
             Exactly n bytes
-            
+
         Raises:
             ValueError: If EOF is reached before reading all bytes
         """
@@ -122,96 +113,96 @@ class Message:
                 raise ValueError(f"Expected {n} bytes, but only read {bytes_read} bytes (EOF)")
             chunks.append(chunk)
             bytes_read += len(chunk)
-        
-        return b''.join(chunks)    
-    
+
+        return b"".join(chunks)
+
     @classmethod
-    def read(cls, stream: BinaryIO) -> 'Message':
+    def read(cls, stream: BinaryIO) -> "Message":
         """
         Read and deserialize a message from a binary stream.
-        
+
         Args:
             stream: Binary stream to read from
-            
+
         Returns:
             A new Message instance
         """
         # Read and validate magic number
         magic_data = cls._read_exact(stream, 4)
-        magic = struct.unpack('!I', magic_data)[0]
-        
+        magic = struct.unpack("!I", magic_data)[0]
+
         if magic != MESSAGE_MAGIC_NUMBER:
-            raise ValueError(f"Invalid magic number 0x{magic:08X}, expected 0x{MESSAGE_MAGIC_NUMBER:08X}. This data is not a valid message.")
-        
+            raise ValueError(
+                f"Invalid magic number 0x{magic:08X}, expected 0x{MESSAGE_MAGIC_NUMBER:08X}. This"
+                "data is not a valid message."
+            )
+
         # Read and validate format version
         version_data = cls._read_exact(stream, 1)
-        version = struct.unpack('!B', version_data)[0]
-        
+        version = struct.unpack("!B", version_data)[0]
+
         if version not in SUPPORTED_MESSAGE_VERSIONS:
-            raise ValueError(f"Unsupported message format version {version}, expected one of {SUPPORTED_MESSAGE_VERSIONS}.")
-        
+            raise ValueError(
+                f"Unsupported message format version {version}, expected one of "
+                f"{SUPPORTED_MESSAGE_VERSIONS}."
+            )
+
         # Read id
         id_data = cls._read_exact(stream, 8)
-        message_id = struct.unpack('!Q', id_data)[0]
-        
+        message_id = struct.unpack("!Q", id_data)[0]
+
         # Read timestamp
         timestamp_data = cls._read_exact(stream, 8)
-        message_timestamp = struct.unpack('!Q', timestamp_data)[0]
-        
+        message_timestamp = struct.unpack("!Q", timestamp_data)[0]
+
         # Read topic
         topic_length_data = cls._read_exact(stream, 4)
-        topic_length = struct.unpack('!I', topic_length_data)[0]
+        topic_length = struct.unpack("!I", topic_length_data)[0]
         topic_data = cls._read_exact(stream, topic_length)
-        topic = topic_data.decode('utf-8')
-        
+        topic = topic_data.decode("utf-8")
+
         # Read headers
         headers_length_data = cls._read_exact(stream, 4)
-        headers_length = struct.unpack('!I', headers_length_data)[0]
+        headers_length = struct.unpack("!I", headers_length_data)[0]
         headers_data = cls._read_exact(stream, headers_length)
-        headers_json = headers_data.decode('utf-8')
+        headers_json = headers_data.decode("utf-8")
         headers = json.loads(headers_json) if headers_json else {}
-        
+
         # Read data
         data_length_data = cls._read_exact(stream, 4)
-        data_length = struct.unpack('!I', data_length_data)[0]
+        data_length = struct.unpack("!I", data_length_data)[0]
         message_content = cls._read_exact(stream, data_length)
-        
+
         # Create new instance and set the id and timestamp directly
-        message = cls(
-            topic=topic,
-            content=message_content,
-            headers=headers
-        )
+        message = cls(topic=topic, content=message_content, headers=headers)
         message.id = message_id
         message.timestamp = message_timestamp
         return message
 
-
     def to_bytes(self) -> bytes:
         """
         Convenience method to serialize message to bytes.
-        
+
         Returns:
             The serialized message as bytes
         """
         stream = io.BytesIO()
         self.write(stream)
         return stream.getvalue()
-    
+
     @classmethod
-    def from_bytes(cls, data: bytes) -> 'Message':
+    def from_bytes(cls, data: bytes) -> "Message":
         """
         Convenience method to deserialize message from bytes.
-        
+
         Args:
             data: The serialized message bytes
-            
+
         Returns:
             A new Message instance
         """
         stream = io.BytesIO(data)
         return cls.read(stream)
-    
 
     def __repr__(self) -> str:
         return f"Message(id={self.id}, topic='{self.topic}', content_length={len(self.content)})"
