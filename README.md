@@ -21,6 +21,10 @@ languages) interprocess communications.
 pip install formix-pubsub
 ```
 
+## API Reference
+
+[https://pubsub.readthedocs.io](https://pubsub.readthedocs.io)
+
 ## Quick Start
 
 ### Basic Publish-Subscribe
@@ -192,142 +196,6 @@ rpc_client()
 # Wait for server to finish
 server_thread.join()
 ```
-
-## API Reference
-
-### Channel
-
-Represents a topic subscription point with a dedicated FIFO queue.
-
-```python
-Channel(topic: str)
-```
-
-**Parameters:**
-- `topic` (str): Topic string with dots separating terms. Supports wildcards `=` (single word) and `+` (multiple words). Valid characters: `[a-zA-Z0-9+=.-]`
-
-**Methods:**
-- `open()`: Opens the FIFO queue for reading (called automatically by context manager)
-- `close()`: Closes the queue and cleans up resources
-- `__enter__()`, `__exit__()`: Context manager support
-
-**Usage:**
-```python
-channel = Channel(topic="app.logs")
-with channel:
-    # Channel is open and ready
-    pass
-# Channel is automatically closed
-```
-
-### publish()
-
-Publishes a message to all matching channels.
-
-```python
-publish(topic: str, data: bytes, headers: Header | None = None) -> int
-```
-
-**Parameters:**
-- `topic` (str): Topic to publish to (only alphanumeric characters, dots, and hyphens allowed: `[a-zA-Z0-9.-]`)
-- `data` (bytes): Message payload
-- `headers` (Header | None): Optional dictionary with string keys and scalar values (str, int, float, bool, None) for metadata
-
-**Returns:**
-- `int`: Number of channels the message was published to
-
-**Raises:**
-- `ValueError`: If topic contains invalid characters (only `[a-zA-Z0-9.-]` allowed)
-
-**Example with headers:**
-```python
-from pubsub import publish
-
-# Publish with custom headers (supports str, int, float, bool, None)
-headers = {
-    "priority": "high",
-    "correlation-id": "12345",
-    "retry-count": 3,
-    "temperature": 98.6,
-    "verified": True
-}
-publish("app.events", b"Event data", headers=headers)
-```
-
-### fetch()
-
-Fetches a single message from a channel (non-blocking).
-
-```python
-fetch(channel: Channel) -> Optional[Message]
-```
-
-**Parameters:**
-- `channel` (Channel): Open channel to fetch from
-
-**Returns:**
-- `Message`: Message object if available, `None` if queue is empty
-
-**Note:** The channel must be opened (use `with channel:`) before calling `fetch()`.
-
-### subscribe()
-
-Subscribes to a channel and processes messages with a callback.
-
-```python
-subscribe(channel: Channel, callback: Callable[[Message], None], timeout_seconds: float = 0) -> int
-```
-
-**Parameters:**
-- `channel` (Channel): Open channel to subscribe to
-- `callback` (Callable): Function called for each message received
-- `timeout_seconds` (float): How long to listen (0 = indefinite)
-
-**Returns:**
-- `int`: Number of messages processed
-
-**Raises:**
-- `ValueError`: If timeout is negative
-
-**Note:** The channel must be opened (use `with channel:`) before calling `subscribe()`.
-
-### Type Aliases
-
-#### Header
-
-Type alias for message headers.
-
-```python
-Header = dict[str, HeaderValueTypes]
-```
-
-A dictionary with string keys and scalar values used to store message metadata.
-
-#### HeaderValueTypes
-
-Type alias for valid header value types.
-
-```python
-HeaderValueTypes = str | int | float | bool | None
-```
-
-Headers support the following scalar types as values:
-- `str`: Text strings
-- `int`: Integers
-- `float`: Floating-point numbers
-- `bool`: Boolean values (True/False)
-- `None`: Null value
-
-### Message
-
-Represents a pub/sub message.
-
-**Attributes:**
-- `id` (int): Unique message identifier (timestamp-based with random bits)
-- `timestamp` (int): Message creation timestamp in microseconds
-- `topic` (str): Message topic
-- `content` (bytes): Message payload
-- `headers` (Header): Dictionary with string keys and scalar values (str, int, float, bool, None) containing message metadata
 
 ## Configuration
 
