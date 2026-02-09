@@ -96,12 +96,9 @@ chmod +x scripts/*.sh
 
 # All checks passed - create and push git tag
 echo -e "${YELLOW}Creating git tag $VERSION...${NC}"
-git tag -a "$VERSION" -m "Release $VERSION"
-echo -e "${GREEN}✓ Git tag $VERSION created${NC}\n"
-
-echo -e "${YELLOW}Pushing tag to remote...${NC}"
+git tag "$VERSION"
 git push --tags
-echo -e "${GREEN}✓ Tag pushed to remote${NC}\n"
+echo -e "${GREEN}✓ Git tag $VERSION created${NC}\n"
 
 # Step 5: Publish to PyPI
 ./scripts/publish-pypi.sh || {
