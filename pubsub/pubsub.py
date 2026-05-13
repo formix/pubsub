@@ -182,7 +182,13 @@ def subscribe(
                 except Exception as e:
                     logging.warning(f"Error processing message {message}: {e}")
                 message_count += 1
-            time.sleep(0.01)  # Sleep briefly to avoid busy waiting
+            try:
+                time.sleep(0.01)  # Sleep briefly to avoid busy waiting
+            except KeyboardInterrupt:
+                # time.sleep() can raise KeyboardInterrupt when SIGINT is
+                # delivered during the sleep syscall, before the custom signal
+                # handler has a chance to suppress it. Treat it identically.
+                shutdown_requested = True
         if shutdown_requested:
             logging.info("Exiting subscribe loop on '%s'. Handled %i messages.",
                          channel.topic, message_count)
