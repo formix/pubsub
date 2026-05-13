@@ -11,8 +11,14 @@ NC='\033[0m'
 
 echo -e "${YELLOW}[4/5] Building package...${NC}"
 
-# Use PYTHON from environment or default
-PYTHON=${PYTHON:-python3}
+# Use PYTHON from environment or prefer the venv if present
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT_DIR="$(dirname "$SCRIPT_DIR")"
+if [ -x "$ROOT_DIR/.venv/bin/python" ]; then
+    PYTHON="$ROOT_DIR/.venv/bin/python"
+else
+    PYTHON=${PYTHON:-python3}
+fi
 
 # Clean old builds
 echo "Cleaning old builds..."
