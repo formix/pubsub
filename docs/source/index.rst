@@ -1,8 +1,11 @@
 Welcome to formix-pubsub's documentation!
 ==========================================
 
-A lightweight, serverless publish-subscribe messaging system for Python (and other languages) 
-interprocess communications.
+A serverless, zero-dependency publish-subscribe library for Python interprocess communication.
+
+Unlike traditional pub/sub systems that require a broker or server process, **formix-pubsub**
+uses kernel FIFO named pipes and the shared-memory filesystem (``/dev/shm`` on Linux) for
+message routing. There is nothing to install, start, or configure beyond the package itself.
 
 .. toctree::
    :maxdepth: 2
@@ -15,20 +18,15 @@ interprocess communications.
 Features
 --------
 
+* **Serverless** — no broker, no server, no external service required
+* **Zero dependencies** — pure Python, standard library only
 * **Interprocess communication** designed for true parallelism across separate processes
 * **Topic-based routing** with wildcard support (``=`` for single word, ``+`` for multiple words)
 * **Multiple subscribers** can listen to the same topic independently
 * **Message persistence** via file system until consumed
-* **Non-blocking operations** using FIFO queues
-* **Context manager support** for automatic resource cleanup
-* **Thread-safe** operations as a bonus (though designed primarily for separate processes)
-
-Design Philosophy
------------------
-
-This library is designed for **interprocess communication**. Each subscriber typically runs in 
-its own process, enabling true parallel execution without GIL limitations. While thread-safe 
-for convenience, the real power comes from process-based parallelism.
+* **Non-blocking fetch** using FIFO queues
+* **Automatic cleanup** of stale channels from terminated processes
+* **Context manager support** for resource cleanup
 
 Installation
 ------------
@@ -37,25 +35,46 @@ Installation
 
    pip install formix-pubsub
 
+Requires Python 3.11 or later.
+
 Quick Example
 -------------
 
+The core use case is communication between separate processes. Create two files:
+
+**subscriber.py**
+
 .. code-block:: python
 
-   from pubsub import Channel, publish, subscribe
+   from pubsub import Channel, subscribe
 
-   # Create a channel for a specific topic
-   channel = Channel(topic="news.sports")
+   channel = Channel(topic="greetings")
 
    with channel:
-       # Publish a message
-       publish("news.sports", b"Team wins championship!")
-       
-       # Subscribe with a callback (listens indefinitely)
-       def handle_message(message):
-           print(f"Received: {message.content.decode()}")
-       
-       subscribe(channel, handle_message)
+       def on_message(msg):
+           print(f"Received: {msg.content.decode()}")
+
+       # Blocks until terminated with Ctrl+C or SIGTERM
+       subscribe(channel, on_message)
+
+**publisher.py**
+
+.. code-block:: python
+
+   from pubsub import publish
+
+   count = publish("greetings", b"Hello from another process!")
+   print(f"Published to {count} subscriber(s)")
+
+Run the subscriber first, then the publisher in a second terminal:
+
+.. code-block:: bash
+
+   # Terminal 1
+   python subscriber.py
+
+   # Terminal 2
+   python publisher.py
 
 Indices and tables
 ==================

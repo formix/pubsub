@@ -126,86 +126,117 @@ Collect logs from multiple services:
    publish("logs.warning", b"Cache miss, rebuilding")
    publish("logs.error", b"Failed to connect to database")
 
-Request-Response Pattern
--------------------------
+Request-Response (RPC) Pattern
+-------------------------------
 
-Request-response pattern using headers for routing. The server listens on a topic
-with explicit action, and clients use headers to specify where responses should be sent.
+For request-response workflows, use message headers to route replies back to the
+caller. This example implements a multiply service with correlation IDs and timeout
+handling.
+
+**rpc_server.py**
 
 .. code-block:: python
 
-   # server.py
+   # rpc_server.py
    from pubsub import Channel, subscribe, publish
 
-   def rpc_server():
-       # Server listens on topic with explicit action (no PID needed)
-       request_channel = Channel(topic="rpc.multiply")
+   channel = Channel(topic="rpc.math.multiply")
 
-       with request_channel:
-           def handle_request(request):
-               # Extract routing info from headers
-               response_topic = request.headers.get("response-topic")
-               correlation_id = request.headers.get("correlation-id")
+   with channel:
+       def handle_request(request):
+           response_topic = request.headers.get("response-topic")
+           correlation_id = request.headers.get("correlation-id")
 
-               if not response_topic or not correlation_id:
-                   print("Invalid request: missing headers")
-                   return
+           if not response_topic or not correlation_id:
+               print("Malformed request (missing headers), skipping.")
+               return
 
-               # Process the request
-               value = int(request.content.decode())
-               result = value * 2
+           # Parse operands from the payload
+           a, b = request.content.decode().split(",")
+           result = float(a) * float(b)
 
-               # Send response back to client with correlation ID
-               response_headers = {
-                   "correlation-id": correlation_id
-               }
-               publish(response_topic, str(result).encode(), headers=response_headers)
-               print(f"Processed request {correlation_id}: {value} * 2 = {result}")
+           # Publish the response back to the caller's private channel
+           publish(
+               response_topic,
+               str(result).encode(),
+               headers={"correlation-id": correlation_id},
+           )
+           print(f"[{correlation_id}] {a} * {b} = {result}")
 
-           print("Server started on rpc.multiply")
-           # Listens indefinitely; terminate process with SIGTERM/SIGINT for graceful shutdown
-           subscribe(request_channel, handle_request)
+       print("RPC server listening on 'rpc.math.multiply'...")
+       subscribe(channel, handle_request)
 
-   if __name__ == "__main__":
-       rpc_server()
+**rpc_client.py**
 
 .. code-block:: python
 
-   # client.py
-   from pubsub import Channel, publish, fetch
+   # rpc_client.py
    import os
-   import time
    import uuid
 
-   def call_multiply(value):
-       # Generate unique correlation ID for this request
-       correlation_id = str(uuid.uuid4())
+   from pubsub import Channel, publish, subscribe
 
-       # Client creates its own response channel with PID
-       client_pid = os.getpid()
-       response_topic = f"rpc.client.{client_pid}"
+   def rpc_multiply(a: float, b: float, timeout: float = 2.0) -> float:
+       """Send a multiply request and wait for the response."""
+
+       correlation_id = str(uuid.uuid4())
+       result: dict = {}
+
+       # Create a private response channel unique to this process
+       response_topic = f"rpc.response.{os.getpid()}"
        response_channel = Channel(topic=response_topic)
 
        with response_channel:
-           # Send request with headers specifying response routing
-           request_headers = {
-               "response-topic": response_topic,
-               "correlation-id": correlation_id
-           }
+           # Send the request with routing headers
+           publish(
+               "rpc.math.multiply",
+               f"{a},{b}".encode(),
+               headers={
+                   "response-topic": response_topic,
+                   "correlation-id": correlation_id,
+               },
+           )
 
-           print(f"Client sending request with correlation-id: {correlation_id}")
-           publish("rpc.multiply", str(value).encode(), headers=request_headers)
+           # Wait for the response using subscribe with a timeout
+           def on_response(msg):
+               if msg.headers.get("correlation-id") == correlation_id:
+                   result["value"] = float(msg.content.decode())
 
-           # Wait for response
-           time.sleep(1)
-           response = fetch(response_channel)
-           if response:
-               response_correlation_id = response.headers.get("correlation-id")
-               if response_correlation_id == correlation_id:
-                   print(f"Received response for {response_correlation_id}")
-                   return int(response.content.decode())
-           return None
+           subscribe(response_channel, on_response, timeout_seconds=timeout)
+
+       if "value" not in result:
+           raise TimeoutError(
+               f"No response received for correlation-id {correlation_id} "
+               f"within {timeout}s"
+           )
+
+       return result["value"]
+
 
    if __name__ == "__main__":
-       result = call_multiply(21)
-       print(f"Result: {result}")  # 42
+       result = rpc_multiply(6, 7)
+       print(f"6 * 7 = {result}")
+
+Run the server first, then the client:
+
+.. code-block:: bash
+
+   # Terminal 1
+   python rpc_server.py
+
+   # Terminal 2
+   python rpc_client.py
+   # Output:
+   #   6 * 7 = 42.0
+
+**How it works:**
+
+1. The client generates a unique ``correlation-id`` and creates a private response
+   channel using its PID.
+2. It publishes a request to ``rpc.math.multiply`` with ``response-topic`` and
+   ``correlation-id`` headers.
+3. The server processes the request, computes the result, and publishes it back to the
+   client's ``response-topic``.
+4. The client calls ``subscribe()`` with a timeout. The callback captures the response
+   when the ``correlation-id`` matches.
+5. If no response arrives before the timeout, a ``TimeoutError`` is raised.

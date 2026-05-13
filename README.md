@@ -1,19 +1,19 @@
-# PubSub
+# formix-pubsub
 
-A lightweight, serverless publish-subscribe messaging system for Python (and other
-languages) interprocess communications.
+[![PyPI version](https://img.shields.io/pypi/v/formix-pubsub)](https://pypi.org/project/formix-pubsub/)
+[![Python](https://img.shields.io/pypi/pyversions/formix-pubsub)](https://pypi.org/project/formix-pubsub/)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-## Features
+A serverless, zero-dependency publish-subscribe library for Python interprocess communication.
 
-- **Interprocess communication** designed for true parallelism across separate processes
-- **Topic-based routing** with wildcard support (`=` for single word, `+` for multiple words)
-- **Multiple subscribers** can listen to the same topic independently
-- **Message persistence** via file system until consumed
-- **Non-blocking operations** using FIFO queues
-- **Context manager support** for automatic resource cleanup
-- **Thread-safe** operations as a bonus (though designed primarily for separate processes)
+## Why Serverless?
 
-> **Design Philosophy:** This library is designed for **interprocess communication**. Each subscriber typically runs in its own process, enabling true parallel execution without GIL limitations. While thread-safe for convenience, the real power comes from process-based parallelism.
+Unlike traditional pub/sub systems (Redis, RabbitMQ, ZeroMQ), **formix-pubsub requires no broker, no server process, and no external service**. Messages are routed through kernel FIFO named pipes and stored on the shared-memory filesystem (`/dev/shm` on Linux), making communication fast and entirely local.
+
+- **No infrastructure** — install and use, nothing to start or configure
+- **Zero dependencies** — pure Python, standard library only
+- **Automatic cleanup** — channels are tied to process IDs; stale channels from crashed processes are detected and cleaned up automatically
+- **Messages persist until consumed** — published messages are stored as files and delivered to all matching subscribers
 
 ## Installation
 
@@ -21,275 +21,250 @@ languages) interprocess communications.
 pip install formix-pubsub
 ```
 
-## API Reference
+Requires Python 3.11 or later.
 
-[https://pubsub.readthedocs.io](https://pubsub.readthedocs.io)
+## Quick Start: Publish & Subscribe Across Processes
 
-## Quick Start
+The core use case is communication between separate processes. Create two files:
 
-### Basic Publish-Subscribe
+**subscriber.py**
 
 ```python
-from pubsub import Channel, publish, subscribe
+from pubsub import Channel, subscribe
 
-# Create a channel for a specific topic
-# Note: Channels can subscribe using wildcards, but publish requires concrete topics
-channel = Channel(topic="news.sports")
+channel = Channel(topic="greetings")
 
-# Use context manager to ensure proper cleanup
 with channel:
-    # Publish to a concrete topic (no wildcards allowed when publishing)
-    count = publish("news.sports", b"Team wins championship!")
-    print(f"Published to {count} channel(s)")
+    def on_message(msg):
+        print(f"Received: {msg.content.decode()}")
 
-    # Subscribe with a callback
-    def handle_message(message):
-        print(f"Received: {message.content.decode()}")
-
-    subscribe(channel, handle_message, timeout_seconds=5.0)
+    # Blocks and listens until terminated with Ctrl+C (SIGINT) or SIGTERM
+    subscribe(channel, on_message)
 ```
 
-### Fetching Messages Manually
+**publisher.py**
+
+```python
+from pubsub import publish
+
+count = publish("greetings", b"Hello from another process!")
+print(f"Published to {count} subscriber(s)")
+```
+
+Run the subscriber first, then the publisher in a second terminal:
+
+```bash
+# Terminal 1
+python subscriber.py
+
+# Terminal 2
+python publisher.py
+```
+
+The subscriber prints `Received: Hello from another process!` and keeps listening. Press `Ctrl+C` to stop it gracefully.
+
+## Non-Blocking Fetch
+
+Use `fetch()` to poll for messages without blocking. It returns `None` immediately when the queue is empty.
 
 ```python
 from pubsub import Channel, publish, fetch
 
-channel = Channel(topic="alerts")
+channel = Channel(topic="tasks")
 
 with channel:
-    # Publish some messages
-    publish("alerts", b"System starting")
-    publish("alerts", b"All systems operational")
+    # Publish a few messages
+    publish("tasks", b"task-1")
+    publish("tasks", b"task-2")
+    publish("tasks", b"task-3")
 
-    # Fetch messages one at a time
-    message = fetch(channel)
-    while message:
-        print(f"{message.topic}: {message.content.decode()}")
-        message = fetch(channel)
+    # Poll for messages
+    msg = fetch(channel)
+    while msg is not None:
+        print(f"Processing: {msg.content.decode()}")
+        msg = fetch(channel)
+
+    print("Queue empty, moving on.")
 ```
 
-### Wildcard Topics
+This is useful when your application needs to check for messages as part of a larger loop without surrendering control flow to `subscribe()`.
+
+## RPC Pattern (Request-Response)
+
+For request-response workflows, use message headers to route replies back to the caller. This example implements a multiply service.
+
+**rpc_server.py**
 
 ```python
-from pubsub import Channel, publish, subscribe
+from pubsub import Channel, subscribe, publish
 
-# Channels can use wildcards to subscribe to multiple topics
-# '=' matches a single word, '+' matches one or more words
-channel = Channel(topic="news.=")  # Matches: news.sports, news.tech, news.world
+channel = Channel(topic="rpc.math.multiply")
 
 with channel:
-    # This channel will receive all matching messages
-    def handle_message(msg):
-        print(f"[{msg.topic}] {msg.content.decode()}")
+    def handle_request(request):
+        response_topic = request.headers.get("response-topic")
+        correlation_id = request.headers.get("correlation-id")
 
-    # Listens indefinitely until SIGTERM/SIGINT received
-    subscribe(channel, handle_message)
+        if not response_topic or not correlation_id:
+            print(f"Malformed request (missing headers), skipping.")
+            return
 
-# Elsewhere in your code, publish to concrete topics
-# The wildcard channel above will receive these messages
-publish("news.sports", b"Game results")
-publish("news.tech", b"New release")
+        # Parse operands from the payload
+        a, b = request.content.decode().split(",")
+        result = float(a) * float(b)
+
+        # Publish the response back to the caller's private channel
+        publish(
+            response_topic,
+            str(result).encode(),
+            headers={"correlation-id": correlation_id},
+        )
+        print(f"[{correlation_id}] {a} * {b} = {result}")
+
+    print("RPC server listening on 'rpc.math.multiply'...")
+    subscribe(channel, handle_request)
 ```
 
-### Multiple Subscribers
-
-> **Note:** This example uses threading for demonstration convenience. In production, subscribers typically run in **separate processes** for true parallelism without GIL limitations.
+**rpc_client.py**
 
 ```python
-import threading
+import os
+import uuid
+
 from pubsub import Channel, publish, subscribe
 
-topic = "broadcast"
+def rpc_multiply(a: float, b: float, timeout: float = 2.0) -> float:
+    """Send a multiply request and wait for the response."""
 
-# Create two independent channels for the same topic
-channel1 = Channel(topic=topic)
-channel2 = Channel(topic=topic)
+    correlation_id = str(uuid.uuid4())
+    result: dict = {}
 
-with channel1, channel2:
-    # Start two subscriber threads (in production, these would be separate processes)
-    def subscriber1():
-        # In production, use process.terminate() to signal shutdown
-        subscribe(channel1, lambda msg: print(f"Sub1: {msg.content}"), timeout_seconds=2.0)
-
-    def subscriber2():
-        # Use timeout for demo; in production, terminate via signal
-        subscribe(channel2, lambda msg: print(f"Sub2: {msg.content}"), timeout_seconds=2.0)
-
-    thread1 = threading.Thread(target=subscriber1)
-    thread2 = threading.Thread(target=subscriber2)
-    thread1.start()
-    thread2.start()
-
-    # Publish - both subscribers receive the message
-    publish(topic, b"Hello everyone!")
-
-    thread1.join()
-    thread2.join()
-```
-
-### Remote Procedure Call (RPC) Pattern
-
-> **Note:** This example uses threading for demonstration. In production, the server and client would typically run in **separate processes** or even on different machines sharing a filesystem.
-
-```python
-import threading
-import time
-from pubsub import Channel, publish, subscribe, fetch
-
-# Server: Process requests and send responses
-def rpc_server():
-    request_channel = Channel(topic="rpc.requests")
-
-    with request_channel:
-        def handle_request(request):
-            print(f"Server received: {request.content.decode()}")
-
-            # Extract response topic and correlation ID from headers
-            response_topic = request.headers.get("response-topic")
-            correlation_id = request.headers.get("correlation-id")
-
-            if response_topic and correlation_id:
-                # Process the request (simulate work)
-                result = f"Processed: {request.content.decode()}"
-
-                # Send response with correlation ID
-                response_headers = {
-                    "correlation-id": correlation_id
-                }
-                publish(response_topic, result.encode(), headers=response_headers)
-                print(f"Server sent response with correlation-id: {correlation_id}")
-
-        subscribe(request_channel, handle_request, timeout_seconds=5.0)
-
-# Client: Send request and wait for response
-def rpc_client():
-    response_channel = Channel(topic="rpc.responses.client1")
+    # Create a private response channel unique to this process
+    response_topic = f"rpc.response.{os.getpid()}"
+    response_channel = Channel(topic=response_topic)
 
     with response_channel:
-        # Create request with response topic and correlation ID
-        request_data = b"Calculate 2 + 2"
-        request_headers = {
-            "response-topic": "rpc.responses.client1",
-            "correlation-id": str(int(time.time() * 1000000))  # Use timestamp as correlation ID
-        }
+        # Send the request with routing headers
+        publish(
+            "rpc.math.multiply",
+            f"{a},{b}".encode(),
+            headers={
+                "response-topic": response_topic,
+                "correlation-id": correlation_id,
+            },
+        )
 
-        print(f"Client sending request with correlation-id: {request_headers['correlation-id']}")
-        publish("rpc.requests", request_data, headers=request_headers)
+        # Wait for the response using subscribe with a timeout
+        def on_response(msg):
+            if msg.headers.get("correlation-id") == correlation_id:
+                result["value"] = float(msg.content.decode())
 
-        # Wait for response
-        response = fetch(response_channel)
-        if response:
-            correlation_id = response.headers.get("correlation-id")
-            print(f"Client received response with correlation-id: {correlation_id}")
-            print(f"Result: {response.content.decode()}")
+        subscribe(response_channel, on_response, timeout_seconds=timeout)
 
-# Start server in background thread
-server_thread = threading.Thread(target=rpc_server)
-server_thread.start()
+    if "value" not in result:
+        raise TimeoutError(
+            f"No response received for correlation-id {correlation_id} "
+            f"within {timeout}s"
+        )
 
-# Give server time to start
-time.sleep(0.1)
+    return result["value"]
 
-# Execute client request
-rpc_client()
 
-# Wait for server to finish
-server_thread.join()
+if __name__ == "__main__":
+    result = rpc_multiply(6, 7)
+    print(f"6 * 7 = {result}")
 ```
+
+Run the server first, then the client:
+
+```bash
+# Terminal 1
+python rpc_server.py
+
+# Terminal 2
+python rpc_client.py
+# Output:
+#   6 * 7 = 42.0
+```
+
+**How it works:**
+
+1. The client generates a unique `correlation-id` and creates a private response channel using its PID.
+2. It publishes a request to `rpc.math.multiply` with `response-topic` and `correlation-id` headers.
+3. The server processes the request, computes the result, and publishes it back to the client's `response-topic`.
+4. The client calls `subscribe()` with a timeout. The callback captures the response when the `correlation-id` matches.
+5. If no response arrives before the timeout, a `TimeoutError` is raised.
+
+## Wildcard Topics
+
+Wildcards let a single channel receive messages from multiple topics:
+
+| Wildcard | Matches | Example |
+|----------|---------|---------|
+| `=` | Exactly one word | `logs.=` matches `logs.info`, `logs.error` but not `logs.app.info` |
+| `+` | One or more words | `logs.+` matches `logs.info`, `logs.error`, and `logs.app.info` |
+
+```python
+from pubsub import Channel, subscribe, publish
+
+# Subscribe to all log topics
+channel = Channel(topic="logs.+")
+
+with channel:
+    def on_log(msg):
+        print(f"[{msg.topic}] {msg.content.decode()}")
+
+    # In another process:
+    # publish("logs.info", b"Started")
+    # publish("logs.app.debug", b"Cache hit")
+
+    subscribe(channel, on_log)
+```
+
+> **Note:** Wildcards are only valid when creating channels for subscribing. You must publish to concrete topics (e.g. `logs.info`, not `logs.+`).
 
 ## Configuration
 
-### Environment Variables
+| Environment Variable | Description | Default |
+|---------------------|-------------|---------|
+| `PUBSUB_HOME` | Directory for channel and message storage | `/dev/shm/pubsub` on Linux, system temp dir elsewhere |
 
-#### PUBSUB_HOME
+## API Summary
 
-Override the default storage location for pubsub channels and messages.
+### `publish(topic, data, headers=None) -> int`
 
-**Default behavior:**
-- Linux/Unix: `/dev/shm/pubsub` (tmpfs for best performance)
-- Other systems: `<system_temp>/pubsub`
+Publish a message to all channels matching `topic`. Returns the number of channels that received the message.
 
-**Usage:**
-```bash
-# Set custom storage location
-export PUBSUB_HOME=/tmp/my-pubsub
+### `fetch(channel) -> Message | None`
 
-# Run your application
-python your_app.py
-```
+Fetch the next message from a channel without blocking. Returns `None` if the queue is empty.
 
-**Example:**
-```python
-import os
-os.environ['PUBSUB_HOME'] = '/path/to/custom/location'
+### `subscribe(channel, callback, timeout_seconds=0) -> int`
 
-from pubsub import Channel, publish, subscribe
+Block and deliver messages to `callback` as they arrive. Set `timeout_seconds` to limit listening duration (0 = indefinite). Returns the number of messages processed, or -1 if interrupted by a signal.
 
-# Now all channels will use the custom location
-channel = Channel(topic="app.logs")
-```
+### `Channel(topic)`
 
-**Note:** The base directory is cached after first use, so `PUBSUB_HOME` should be set before importing or using pubsub functions.
+Represents a subscription endpoint. Use as a context manager to ensure cleanup. Topics may include `=` and `+` wildcards for pattern matching.
 
-## Architecture
+### `Message`
 
-### Interprocess Communication
+A received message with the following attributes:
 
-This library uses filesystem-based IPC mechanisms, making it ideal for **process-level parallelism**:
+- `id` — unique message identifier
+- `timestamp` — microsecond-precision timestamp
+- `topic` — the concrete topic the message was published to
+- `content` — payload as `bytes`
+- `headers` — optional `dict[str, str | int | float | bool | None]`
 
-- Each subscriber process runs independently with its own Python interpreter
-- No shared memory between processes means no GIL contention
-- True parallel execution across multiple CPU cores
-- Publishers and subscribers can be completely separate applications
+## Best Practices
 
-The thread-safe operations are a convenience feature, but the architecture shines when used across separate processes.
-
-### Storage Location
-
-Messages are stored in `/dev/shm/pubsub/` (tmpfs) by default for fast access. Each channel creates a directory containing:
-- `queue`: FIFO pipe for message IDs
-- `<message_id>`: Message content files
-
-### Message Flow
-
-1. **Publish**: Message are hard-linked to each matching channel directory, ID written to matching FIFOs
-2. **Fetch/Subscribe**: Read ID from FIFO, load message from file, delete message file
-3. **Cleanup**: Channel cleanup removes directory and all unconsumed messages
-
-### Wildcards
-
-- `=` matches a single word: `logs.=.error` matches `logs.app.error` but not `logs.error`
-- `+` matches one or more words: `logs.+` matches `logs.error`, `logs.app.error`, `logs.app.module.error`
-
-## Testing
-
-Run the test suite:
-
-```bash
-# All tests
-python -m unittest discover -s tests
-
-# Specific test class
-python -m unittest tests.test_pubsub.TestPublish -v
-
-# Specific test
-python -m unittest tests.test_channel.TestChannel.test_channel_creation -v
-```
-
-## Contributing
-
-Contributions are welcome! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines on:
-- Commit message conventions (Conventional Commits)
-- Development setup
-- Running tests
-- Pull request process
-
-## Requirements
-
-- Python 3.10+
-- Linux/Unix with tmpfs support (`/dev/shm`)
-- FIFO (named pipes) support
+1. **Use separate processes** — designed for true parallelism without GIL limitations
+2. **Always use context managers** — `with Channel(...) as ch:` ensures FIFO cleanup
+3. **Publish to concrete topics** — wildcards are for subscribing only
+4. **Structure topic hierarchies** — e.g. `app.service.event` for flexible wildcard matching
+5. **Stop subscribers with signals** — `SIGTERM` or `SIGINT` triggers graceful shutdown
 
 ## License
 
-See LICENSE file for details.
+[MIT](LICENSE)

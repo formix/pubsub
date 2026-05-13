@@ -10,50 +10,78 @@ Install formix-pubsub using pip:
 
    pip install formix-pubsub
 
+Requires Python 3.11 or later.
+
 Basic Usage
 -----------
 
-Basic Publish-Subscribe
-~~~~~~~~~~~~~~~~~~~~~~~~
+Publish & Subscribe Across Processes
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+The core use case is communication between separate processes. Create two files:
+
+**subscriber.py**
 
 .. code-block:: python
 
-   from pubsub import Channel, publish, subscribe
+   from pubsub import Channel, subscribe
 
-   # Create a channel for a specific topic
-   channel = Channel(topic="news.sports")
+   channel = Channel(topic="greetings")
 
    with channel:
-       # Publish to a concrete topic
-       count = publish("news.sports", b"Team wins championship!")
-       print(f"Published to {count} channel(s)")
+       def on_message(msg):
+           print(f"Received: {msg.content.decode()}")
 
-       # Subscribe with a callback
-       # Listens indefinitely; use SIGTERM/SIGINT for graceful shutdown
-       def handle_message(message):
-           print(f"Received: {message.content.decode()}")
+       # Blocks and listens until terminated with Ctrl+C or SIGTERM
+       subscribe(channel, on_message)
 
-       subscribe(channel, handle_message)
+**publisher.py**
 
-Fetching Messages Manually
-~~~~~~~~~~~~~~~~~~~~~~~~~~~
+.. code-block:: python
+
+   from pubsub import publish
+
+   count = publish("greetings", b"Hello from another process!")
+   print(f"Published to {count} subscriber(s)")
+
+Run the subscriber first in one terminal, then the publisher in a second:
+
+.. code-block:: bash
+
+   # Terminal 1
+   python subscriber.py
+
+   # Terminal 2
+   python publisher.py
+
+The subscriber prints ``Received: Hello from another process!`` and keeps listening.
+Press ``Ctrl+C`` to stop it gracefully.
+
+Non-Blocking Fetch
+~~~~~~~~~~~~~~~~~~~
+
+Use ``fetch()`` to poll for messages without blocking. It returns ``None`` immediately
+when the queue is empty.
 
 .. code-block:: python
 
    from pubsub import Channel, publish, fetch
 
-   channel = Channel(topic="alerts")
+   channel = Channel(topic="tasks")
 
    with channel:
-       # Publish some messages
-       publish("alerts", b"System starting")
-       publish("alerts", b"All systems operational")
+       # Publish a few messages
+       publish("tasks", b"task-1")
+       publish("tasks", b"task-2")
+       publish("tasks", b"task-3")
 
-       # Fetch messages one at a time
-       message = fetch(channel)
-       while message:
-           print(f"{message.topic}: {message.content.decode()}")
-           message = fetch(channel)
+       # Poll for messages
+       msg = fetch(channel)
+       while msg is not None:
+           print(f"Processing: {msg.content.decode()}")
+           msg = fetch(channel)
+
+       print("Queue empty, moving on.")
 
 Wildcard Topics
 ~~~~~~~~~~~~~~~
