@@ -180,7 +180,7 @@ handling.
        """Send a multiply request and wait for the response."""
 
        correlation_id = str(uuid.uuid4())
-       result: dict = {}
+       result = {correlation_id: None}
 
        # Create a private response channel unique to this process
        response_topic = f"rpc.response.{os.getpid()}"
@@ -200,17 +200,17 @@ handling.
            # Wait for the response using subscribe with a timeout
            def on_response(msg):
                if msg.headers.get("correlation-id") == correlation_id:
-                   result["value"] = float(msg.content.decode())
+                   result[correlation_id] = float(msg.content.decode())
 
            subscribe(response_channel, on_response, timeout_seconds=timeout)
 
-       if "value" not in result:
+       if result[correlation_id] is None:
            raise TimeoutError(
                f"No response received for correlation-id {correlation_id} "
                f"within {timeout}s"
            )
 
-       return result["value"]
+       return result[correlation_id]
 
 
    if __name__ == "__main__":
