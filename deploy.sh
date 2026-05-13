@@ -16,7 +16,7 @@ echo -e "${BLUE}║   formix-pubsub Deployment Pipeline    ║${NC}"
 echo -e "${BLUE}╚════════════════════════════════════════╝${NC}\n"
 
 # Get version from pyproject.toml
-VERSION=$(grep '^version = ' pyproject.toml | sed 's/version = "\(.*\)"/\1/')
+VERSION=$(grep '^version = ' pyproject.toml | sed 's/version = "\(.*\)"/\1/' | tr -d '\r')
 
 if [ -z "$VERSION" ]; then
     echo -e "${RED}Error: Could not read version from pyproject.toml${NC}"
