@@ -637,5 +637,7 @@ class TestIntegration(unittest.TestCase):
         assert len(received2) == 1
         assert received1[0]["content"] == "for topic 1"
         assert received2[0]["content"] == "for topic 2"
+
+        
 if __name__ == "__main__":
     unittest.main()
