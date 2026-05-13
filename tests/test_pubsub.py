@@ -55,15 +55,19 @@ class TestPublish(unittest.TestCase):
                 assert len(message_files) == 1
 
     def test_publish_with_wildcard_match(self):
-        """Test publishing with wildcard matching."""
-        wildcard_topic = "test.+"
+        """Test publishing to a topic matched by a wildcard channel."""
+        wildcard_topic = "test.publish.wc.+"
         channel = Channel(topic=wildcard_topic)
 
         with channel:
             data = b"wildcard message"
-            count = publish("test.specific.topic", data)
+            count = publish("test.publish.wc.specific.topic", data)
+            assert count == 1
 
-        assert count >= 1
+            message = fetch(channel)
+            assert message is not None
+            assert message.content == data
+            assert message.topic == "test.publish.wc.specific.topic"
 
     def test_publish_no_matching_channels(self):
         """Test publishing when no channels match."""
@@ -84,15 +88,19 @@ class TestPublish(unittest.TestCase):
         assert count == 1
 
     def test_publish_large_data(self):
-        """Test publishing large data payload."""
+        """Test publishing and fetching large data payload preserves content."""
         topic = "test.large"
         channel = Channel(topic=topic)
 
         with channel:
             data = b"x" * 1024 * 1024  # 1MB
             count = publish(topic, data)
+            assert count == 1
 
-        assert count == 1
+            message = fetch(channel)
+            assert message is not None
+            assert message.content == data
+            assert len(message.content) == 1024 * 1024
 
     def test_publish_unicode_topic(self):
         """Test that unicode characters in topic raise ValueError."""
@@ -125,6 +133,43 @@ class TestPublish(unittest.TestCase):
         # Verify error message mentions allowed characters
         assert "a-zA-Z0-9.-" in str(context.exception) or \
                "alphanumeric" in str(context.exception).lower()
+
+    def test_publish_with_headers(self):
+        """Test that headers with all scalar types round-trip through publish and fetch."""
+        topic = "test.publish.headers"
+        channel = Channel(topic=topic)
+        headers = {
+            "str-key": "value",
+            "int-key": 42,
+            "float-key": 3.14,
+            "bool-key": True,
+            "none-key": None,
+        }
+
+        with channel:
+            count = publish(topic, b"data", headers=headers)
+            assert count == 1
+
+            message = fetch(channel)
+            assert message is not None
+            assert message.headers["str-key"] == "value"
+            assert message.headers["int-key"] == 42
+            assert message.headers["float-key"] == 3.14
+            assert message.headers["bool-key"] is True
+            assert message.headers["none-key"] is None
+
+    def test_publish_with_none_headers(self):
+        """Test that publishing with headers=None results in empty dict on fetch."""
+        topic = "test.publish.none.headers"
+        channel = Channel(topic=topic)
+
+        with channel:
+            count = publish(topic, b"data", headers=None)
+            assert count == 1
+
+            message = fetch(channel)
+            assert message is not None
+            assert message.headers == {}
 
 
 class TestFetch(unittest.TestCase):
@@ -212,24 +257,22 @@ class TestFetch(unittest.TestCase):
             message_files_after = [f for f in files_after if f.name != "queue"]
             assert len(message_files_after) == 0
 
-    def test_fetch_preserves_message_attributes(self):
-        """Test that fetched message preserves all attributes."""
+    def test_fetch_preserves_id_and_timestamp(self):
+        """Test that fetched message has a valid id and a timestamp within the publish window."""
         topic = "test.fetch.attrs"
         channel = Channel(topic=topic)
 
         with channel:
-            # Publish a message
-            data = b"attribute test"
-            publish(topic, data)
+            before = int(time.time() * 1_000_000)
+            publish(topic, b"attribute test")
+            after = int(time.time() * 1_000_000)
 
-            # Fetch the message
             message = fetch(channel)
 
             assert message is not None
-            assert message.topic == topic
-            assert message.content == data
             assert message.id > 0
-            assert message.timestamp > 0
+            # Allow 1s of slack for slow machines
+            assert before <= message.timestamp <= after + 1_000_000
 
     def test_fetch_with_empty_content(self):
         """Test fetching message with empty content."""
@@ -245,6 +288,16 @@ class TestFetch(unittest.TestCase):
 
             assert message is not None
             assert message.content == b""
+
+    def test_fetch_on_closed_channel(self):
+        """Test that fetch raises RuntimeError on a channel that has been closed."""
+        topic = "test.fetch.closed"
+        channel = Channel(topic=topic)
+        channel.open()
+        channel.close()
+
+        with self.assertRaises(RuntimeError):
+            fetch(channel)
 
 
 class TestSubscribe(unittest.TestCase):
@@ -361,30 +414,15 @@ class TestSubscribe(unittest.TestCase):
         assert len(result["received"]) == 1  # Only second message added
         assert result["received"][0] == "message 2"
 
-    def test_subscribe_zero_timeout_exits_quickly(self):
-        """Test that timeout=0 means listen indefinitely (needs manual stop)."""
-        topic = "test.subscribe.zero"
+    def test_subscribe_on_closed_channel(self):
+        """Test that subscribe raises RuntimeError on a channel that has been closed."""
+        topic = "test.subscribe.closed"
+        channel = Channel(topic=topic)
+        channel.open()
+        channel.close()
 
-        def subscriber_process(topic, timeout):
-            """Subprocess that subscribes with given timeout."""
-            channel = Channel(topic=topic)
-            received_messages = []
-
-            with channel:
-                def callback(message):
-                    received_messages.append(message)
-
-                subscribe(channel, callback, timeout_seconds=timeout)
-
-            # Process will exit naturally when subscribe completes
-
-        # Start subscriber in subprocess with short timeout
-        proc = _mp.Process(target=subscriber_process, args=(topic, 0.1))
-        proc.start()
-        proc.join(timeout=0.3)
-
-        # Process should have completed
-        assert not proc.is_alive()
+        with self.assertRaises(RuntimeError):
+            subscribe(channel, lambda msg: None, timeout_seconds=0.1)
 
 
 class TestIntegration(unittest.TestCase):
@@ -518,6 +556,15 @@ class TestIntegration(unittest.TestCase):
         assert len(received) == 10
         for i in range(10):
             assert received[i] == f"message {i}"
+
+    def test_publish_none_data_raises(self):
+        """Test that publishing None as data raises TypeError."""
+        topic = "test.integration.none"
+        channel = Channel(topic=topic)
+
+        with channel:
+            with self.assertRaises(TypeError):
+                publish(topic, None)
 
     def test_publish_before_subscribe(self):
         """Test that messages published before subscribe can be fetched."""
