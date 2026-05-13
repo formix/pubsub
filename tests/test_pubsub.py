@@ -1,9 +1,16 @@
 """Tests for the PubSub module."""
 
 import multiprocessing
+import sys
 import threading
 import time
 import unittest
+
+# Python 3.14+ changed the default multiprocessing start method on Linux from
+# 'fork' to 'forkserver', which requires pickling the target function. Local
+# functions defined inside test methods cannot be pickled, so we explicitly
+# request the 'fork' context on 3.14+.
+_mp = multiprocessing.get_context("fork") if sys.version_info >= (3, 14) else multiprocessing
 
 from pubsub.channel import Channel
 from pubsub.pubsub import fetch, publish, subscribe
@@ -332,10 +339,10 @@ class TestSubscribe(unittest.TestCase):
             result_queue.put({"count": count, "received": received})
 
         # Create queue for results
-        result_queue = multiprocessing.Queue()
+        result_queue = _mp.Queue()
 
         # Start subscriber in subprocess
-        sub_proc = multiprocessing.Process(target=subscriber_process, args=(topic, result_queue))
+        sub_proc = _mp.Process(target=subscriber_process, args=(topic, result_queue))
         sub_proc.start()
 
         # Publish messages
@@ -372,7 +379,7 @@ class TestSubscribe(unittest.TestCase):
             # Process will exit naturally when subscribe completes
 
         # Start subscriber in subprocess with short timeout
-        proc = multiprocessing.Process(target=subscriber_process, args=(topic, 0.1))
+        proc = _mp.Process(target=subscriber_process, args=(topic, 0.1))
         proc.start()
         proc.join(timeout=0.3)
 
@@ -401,10 +408,10 @@ class TestIntegration(unittest.TestCase):
             result_queue.put(received)
 
         # Create queue for results
-        result_queue = multiprocessing.Queue()
+        result_queue = _mp.Queue()
 
         # Start subscriber in subprocess
-        sub_proc = multiprocessing.Process(target=subscriber_process, args=(topic, result_queue))
+        sub_proc = _mp.Process(target=subscriber_process, args=(topic, result_queue))
         sub_proc.start()
 
         # Publish messages
@@ -440,12 +447,12 @@ class TestIntegration(unittest.TestCase):
             result_queue.put({"id": subscriber_id, "received": received})
 
         # Create queue for results
-        result_queue = multiprocessing.Queue()
+        result_queue = _mp.Queue()
 
         # Start two subscribers in separate subprocesses
-        sub1_proc = multiprocessing.Process(target=subscriber_process,
+        sub1_proc = _mp.Process(target=subscriber_process,
                                             args=(topic, result_queue, 1))
-        sub2_proc = multiprocessing.Process(target=subscriber_process,
+        sub2_proc = _mp.Process(target=subscriber_process,
                                             args=(topic, result_queue, 2))
         sub1_proc.start()
         sub2_proc.start()
@@ -489,10 +496,10 @@ class TestIntegration(unittest.TestCase):
             result_queue.put(received)
 
         # Create queue for results
-        result_queue = multiprocessing.Queue()
+        result_queue = _mp.Queue()
 
         # Start subscriber in subprocess
-        sub_proc = multiprocessing.Process(target=subscriber_process, args=(topic, result_queue))
+        sub_proc = _mp.Process(target=subscriber_process, args=(topic, result_queue))
         sub_proc.start()
 
         # Publish multiple messages
@@ -554,12 +561,12 @@ class TestIntegration(unittest.TestCase):
             result_queue.put({"topic_id": topic_id, "received": received})
 
         # Create queue for results
-        result_queue = multiprocessing.Queue()
+        result_queue = _mp.Queue()
 
         # Start both subscribers in separate subprocesses
-        sub1_proc = multiprocessing.Process(target=subscriber_process,
+        sub1_proc = _mp.Process(target=subscriber_process,
                                             args=(topic1, result_queue, 1))
-        sub2_proc = multiprocessing.Process(target=subscriber_process,
+        sub2_proc = _mp.Process(target=subscriber_process,
                                             args=(topic2, result_queue, 2))
         sub1_proc.start()
         sub2_proc.start()
