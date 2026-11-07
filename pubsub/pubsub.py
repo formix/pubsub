@@ -7,7 +7,6 @@ import signal
 import struct
 import time
 from collections.abc import Callable
-from pathlib import Path
 
 from .abstractions import get_base_dir
 from .channel import Channel
@@ -89,7 +88,8 @@ def publish(topic: str, data: bytes, headers: Header | None = None) -> int:
 
     Raises:
         ValueError: If topic contains invalid characters (must be [a-zA-Z0-9.-])
-        RuntimeError: If unable to publish to any matching channels
+        RuntimeError: If the message id already exists (id collision), in the temporary
+            directory or in a matching channel
     """
 
     # Every dot-separated word must contain something other than whitespace
@@ -109,53 +109,48 @@ def publish(topic: str, data: bytes, headers: Header | None = None) -> int:
     message = Message(topic=topic, content=data, headers=headers)
     tmp_dir = get_base_dir() / "tmp"
     tmp_dir.mkdir(exist_ok=True)  # Ensure temporary directory exists
-
-    def write_temp_file() -> Path:
-        """Write the message to tmp/<id>, taking the next id if that file already exists."""
-        while True:
-            temp_file = tmp_dir / f"{message.id}"
-            try:
-                with open(temp_file, "xb") as msg_file:
-                    message.write(msg_file)
-                return temp_file
-            except FileExistsError:
-                message.id += 1
-
-    message_temp_file = write_temp_file()
+    message_temp_file = tmp_dir / f"{message.id}"
+    try:
+        with open(message_temp_file, "xb") as msg_file:
+            message.write(msg_file)
+    except FileExistsError as e:
+        raise RuntimeError(
+            f"Message id collision: {message_temp_file} already exists. Message {message.id} "
+            "was not published."
+        ) from e
 
     publication_count = 0
-    for channel_dir in Channel.active_paths():
-        # Channel directories are named {pattern}_{random_id}_{process_id}
-        if not _is_matching(channel_dir.name.split("_")[0], topic):
-            continue
-        queue_path = channel_dir / "queue"
-        if not queue_path.exists():
-            logging.warning(
-                f"Channel directory {channel_dir} does not contain a queue file. Skipping."
-            )
-            continue
-        try:
-            while True:
-                try:
-                    os.link(str(message_temp_file), str(channel_dir / str(message.id)))
-                    break
-                except FileExistsError:
-                    # The id is already used in this channel: add 1 to it and retry
-                    message_temp_file.unlink()
-                    message.id += 1
-                    message_temp_file = write_temp_file()
-            with os.fdopen(
-                os.open(str(queue_path), os.O_WRONLY | os.O_NONBLOCK), "wb"
-            ) as queue_file:
-                queue_file.write(struct.pack("!Q", message.id))
-                publication_count += 1
-        except (OSError, BrokenPipeError) as e:
-            logging.warning(f"Failed to publish message {message.id} to {queue_path}: {e}")
-
     try:
-        message_temp_file.unlink()
-    except FileNotFoundError:
-        logging.debug(f"Temporary message file {message_temp_file} already removed.")
+        for channel_dir in Channel.active_paths():
+            # Channel directories are named {pattern}_{random_id}_{process_id}
+            if not _is_matching(channel_dir.name.split("_")[0], topic):
+                continue
+            queue_path = channel_dir / "queue"
+            if not queue_path.exists():
+                logging.warning(
+                    f"Channel directory {channel_dir} does not contain a queue file. Skipping."
+                )
+                continue
+            try:
+                os.link(str(message_temp_file), str(channel_dir / str(message.id)))
+                with os.fdopen(
+                    os.open(str(queue_path), os.O_WRONLY | os.O_NONBLOCK), "wb"
+                ) as queue_file:
+                    queue_file.write(struct.pack("!Q", message.id))
+                    publication_count += 1
+            except FileExistsError as e:
+                raise RuntimeError(
+                    f"Message id collision: message {message.id} already exists in "
+                    f"{channel_dir}. The message was published to {publication_count} "
+                    "channel(s) before the collision."
+                ) from e
+            except (OSError, BrokenPipeError) as e:
+                logging.warning(f"Failed to publish message {message.id} to {queue_path}: {e}")
+    finally:
+        try:
+            message_temp_file.unlink()
+        except FileNotFoundError:
+            logging.debug(f"Temporary message file {message_temp_file} already removed.")
 
     return publication_count
 

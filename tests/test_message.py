@@ -1,7 +1,10 @@
 """Tests for the Message class."""
 
+import os
+import threading
 import time
 import unittest
+from unittest import mock
 
 from pubsub.message import Header, Message
 
@@ -25,7 +28,7 @@ class TestMessage(unittest.TestCase):
         message1 = Message(topic="test", content=b"data1")
         message2 = Message(topic="test", content=b"data2")
 
-        # IDs should be unique (random bits ensure this even in same microsecond)
+        # IDs should be unique even when created within the same millisecond
         assert message1.id != message2.id
 
         # IDs should generally increase over time (high bits are time-based)
@@ -168,3 +171,68 @@ class TestMessage(unittest.TestCase):
         assert deserialized.headers["user"] == "José García"
         assert deserialized.headers["message"] == "Hello 世界 🌍"
         assert deserialized.id == message.id
+
+
+class TestMessageId(unittest.TestCase):
+    """Test cases for the message id generator."""
+
+    SEQUENCE_BITS = 12
+    PROCESS_BITS = 10
+
+    def test_ids_are_unique_and_increasing_in_generation_order(self):
+        ids = [Message._next_id() for _ in range(20_000)]  # many per millisecond
+
+        assert len(set(ids)) == len(ids)
+        assert ids == sorted(ids)
+
+    def test_id_layout(self):
+        before_ms = time.time_ns() // 1_000_000
+        message_id = Message._next_id()
+        after_ms = time.time_ns() // 1_000_000 + 1  # a burst may borrow the next millisecond
+
+        id_ms = message_id >> (self.PROCESS_BITS + self.SEQUENCE_BITS)
+        id_process = (message_id >> self.SEQUENCE_BITS) & ((1 << self.PROCESS_BITS) - 1)
+
+        assert before_ms <= id_ms <= after_ms + 1
+        assert id_process == os.getpid() & ((1 << self.PROCESS_BITS) - 1)
+        assert 0 < message_id < 1 << 64
+
+    def test_ids_are_unique_across_threads(self):
+        results: list[list[int]] = []
+
+        def generate():
+            results.append([Message._next_id() for _ in range(5_000)])
+
+        threads = [threading.Thread(target=generate) for _ in range(8)]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join()
+
+        all_ids = [i for ids in results for i in ids]
+        assert len(all_ids) == 8 * 5_000
+        assert len(set(all_ids)) == len(all_ids)
+        for ids in results:  # each thread sees increasing ids
+            assert ids == sorted(ids)
+
+    def test_ids_keep_increasing_when_the_clock_goes_backwards(self):
+        first = Message._next_id()
+        first_ms = first >> (self.PROCESS_BITS + self.SEQUENCE_BITS)
+
+        with mock.patch("pubsub.message.time.time_ns", return_value=(first_ms - 5_000) * 1_000_000):
+            second = Message._next_id()
+            third = Message._next_id()
+
+        assert first < second < third
+
+    def test_sequence_overflow_moves_to_the_next_millisecond(self):
+        frozen_ns = (time.time_ns() // 1_000_000 + 60_000) * 1_000_000  # a fresh millisecond
+
+        with mock.patch("pubsub.message.time.time_ns", return_value=frozen_ns):
+            ids = [Message._next_id() for _ in range((1 << self.SEQUENCE_BITS) * 2 + 10)]
+
+        assert len(set(ids)) == len(ids)
+        assert ids == sorted(ids)
+        id_ms = {i >> (self.PROCESS_BITS + self.SEQUENCE_BITS) for i in ids}
+        assert len(id_ms) == 3  # 4096 ids per millisecond, so 8202 ids span 3 milliseconds
+

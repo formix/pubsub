@@ -13,6 +13,7 @@ from unittest import mock
 # request the 'fork' context on 3.14+.
 _mp = multiprocessing.get_context("fork") if sys.version_info >= (3, 14) else multiprocessing
 
+from pubsub.abstractions import get_base_dir
 from pubsub.channel import Channel
 from pubsub.message import Message
 from pubsub.pubsub import _is_matching, fetch, publish, subscribe
@@ -137,23 +138,48 @@ class TestPublish(unittest.TestCase):
             assert fetch(channel_plus) is not None
             assert fetch(channel_eq) is None
 
-    def test_publish_retries_with_next_id_when_message_id_collides(self):
-        """Test that a message id collision adds 1 to the id instead of losing the message."""
+    def test_publish_raises_when_message_id_collides_in_a_channel(self):
+        """Test that an id already present in a channel raises instead of changing the id."""
         topic = "test.publish.collision"
         channel = Channel(topic=topic)
         fixed_id = 1_000_000_000_000_000
+        tmp_dir = get_base_dir() / "tmp"
 
         with channel, mock.patch.object(Message, "_next_id", return_value=fixed_id):
             assert publish(topic, b"first") == 1
-            # Same id generated again: the link in the channel directory already exists
-            assert publish(topic, b"second") == 1
-            assert publish(topic, b"third") == 1
 
-            messages = [fetch(channel) for _ in range(3)]
-            assert all(m is not None for m in messages)
-            assert [m.content for m in messages] == [b"first", b"second", b"third"]
-            assert [m.id for m in messages] == [fixed_id, fixed_id + 1, fixed_id + 2]
+            # Same id again while the first message is still in the channel
+            with self.assertRaises(RuntimeError) as context:
+                publish(topic, b"second")
+            assert "collision" in str(context.exception).lower()
+            assert not (tmp_dir / str(fixed_id)).exists()  # temporary file is cleaned up
+
+            # The first message is untouched and nothing else was delivered
+            message = fetch(channel)
+            assert message is not None
+            assert message.content == b"first"
+            assert message.id == fixed_id
             assert fetch(channel) is None
+
+    def test_publish_raises_when_temporary_message_file_already_exists(self):
+        """Test that an id already used in the tmp directory raises."""
+        topic = "test.publish.tmpcollision"
+        channel = Channel(topic=topic)
+        fixed_id = 1_000_000_000_000_001
+        tmp_dir = get_base_dir() / "tmp"
+        tmp_dir.mkdir(exist_ok=True)
+        existing = tmp_dir / str(fixed_id)  # as if another process is publishing this id
+        existing.write_bytes(b"other publisher")
+
+        try:
+            with channel, mock.patch.object(Message, "_next_id", return_value=fixed_id):
+                with self.assertRaises(RuntimeError) as context:
+                    publish(topic, b"data")
+                assert "collision" in str(context.exception).lower()
+                assert existing.read_bytes() == b"other publisher"  # not touched
+                assert fetch(channel) is None
+        finally:
+            existing.unlink(missing_ok=True)
 
     def test_publish_no_matching_channels(self):
         """Test publishing when no channels match."""
