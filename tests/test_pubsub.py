@@ -69,6 +69,71 @@ class TestPublish(unittest.TestCase):
             assert message.content == data
             assert message.topic == "test.publish.wc.specific.topic"
 
+            assert publish("test.publish.other.specific.topic", data) == 0
+            assert fetch(channel) is None
+
+    def test_publish_with_single_character_wildcard_match(self):
+        """Test publishing to a topic matched by the = (whole word) wildcard."""
+        wildcard_topic = "test.publish.eq.="
+        channel = Channel(topic=wildcard_topic)
+
+        with channel:
+            data = b"single-character wildcard message"
+            matched_topic = "test.publish.eq.item77"
+            assert publish(matched_topic, data) == 1
+
+            message = fetch(channel)
+            assert message is not None
+            assert message.content == data
+            assert message.topic == matched_topic
+
+            assert publish("test.publish.eq.item.77", data) == 0
+            assert fetch(channel) is None
+
+    def test_publish_with_combined_wildcard_match(self):
+        """Test publishing to a topic matched by both = and + wildcards."""
+        wildcard_topic = "test.publish.combined.=.tail.+"
+        channel = Channel(topic=wildcard_topic)
+
+        with channel:
+            data = b"combined wildcard message"
+            matched_topic = "test.publish.combined.x.tail.more"
+            assert publish(matched_topic, data) == 1
+
+            message = fetch(channel)
+            assert message is not None
+            assert message.content == data
+            assert message.topic == matched_topic
+
+            # '=' matches a whole word, but never several words
+            assert publish("test.publish.combined.xy.tail.more", data) == 1
+            assert fetch(channel) is not None
+            assert publish("test.publish.combined.x.y.tail.more", data) == 0
+            # '+' needs at least one word
+            assert publish("test.publish.combined.x.tail", data) == 0
+            assert fetch(channel) is None
+
+    def test_publish_reaches_two_wildcard_channels(self):
+        """Test that one published message reaches two different wildcard channels."""
+        channel_plus = Channel(topic="test.publish.multi.+")
+        channel_eq = Channel(topic="test.publish.multi.=")
+
+        with channel_plus, channel_eq:
+            data = b"multi wildcard message"
+            topic = "test.publish.multi.item"
+            assert publish(topic, data) == 2
+
+            for channel in (channel_plus, channel_eq):
+                message = fetch(channel)
+                assert message is not None
+                assert message.content == data
+                assert message.topic == topic
+
+            # A multi-word topic matches only the + channel ('=' is a single word).
+            assert publish("test.publish.multi.a.b", data) == 1
+            assert fetch(channel_plus) is not None
+            assert fetch(channel_eq) is None
+
     def test_publish_no_matching_channels(self):
         """Test publishing when no channels match."""
         data = b"no one listening"

@@ -62,6 +62,7 @@ class Channel:
         Validate that topic contains only allowed characters.
 
         Valid characters: [a-zA-Z0-9+=.-]
+        The wildcards '=' and '+' must each be a whole dot-separated term.
 
         Args:
             topic: The topic string to validate
@@ -81,6 +82,14 @@ class Channel:
                 f"Topic '{topic}' contains invalid characters: {sorted(invalid_chars)}."
                 "Only [a-zA-Z0-9+=.-] are allowed."
             )
+
+        # Wildcards must be alone between dots (e.g. 'a.=.b', never 'a.b=' or 'a.+b')
+        for term in topic.split("."):
+            if ("=" in term or "+" in term) and term not in ("=", "+"):
+                raise ValueError(
+                    f"Topic '{topic}' has invalid wildcard usage in term '{term}': "
+                    "'=' and '+' must be alone between dots."
+                )
 
     def _create_channel(self) -> None:
         """Create the channel directory and FIFO queue."""
@@ -223,8 +232,8 @@ class Channel:
         regex.
 
         Converts wildcards to regex patterns:
-        - '=' becomes '[a-zA-Z0-9-]' (single word wildcard)
-        - '+' becomes '[a-zA-Z0-9.-]*' (multiple words wildcard)
+        - '=' becomes '[a-zA-Z0-9-]+' (single whole word wildcard)
+        - '+' becomes one or more '.'-separated words (multiple words wildcard)
 
         Args:
             topic: The topic to match against
@@ -236,8 +245,11 @@ class Channel:
         for item in Channel.active_paths():
             parts = item.name.split("_")
             topic_pattern = parts[0]
-            regex_pattern = topic_pattern.replace("=", "[a-zA-Z0-9-]").replace(
-                "+", "[a-zA-Z0-9.-]*"
+            regex_pattern = r"\.".join(
+                {"=": r"[a-zA-Z0-9-]+", "+": r"[a-zA-Z0-9-]+(?:\.[a-zA-Z0-9-]+)*"}.get(
+                    term, re.escape(term)
+                )
+                for term in topic_pattern.split(".")
             )
             if re.fullmatch(regex_pattern, topic):
                 matching_channels.append(item)

@@ -88,6 +88,27 @@ class TestChannel(unittest.TestCase):
                 Channel(topic=invalid_topic)
             assert "invalid characters" in str(context.exception).lower()
 
+    def test_topic_validation_wildcards_must_be_alone_between_dots(self):
+        """Test that = and + are rejected unless they are a whole dot-separated term."""
+        invalid_topics = [
+            "topic=",
+            "topic+",
+            "=topic",
+            "+topic",
+            "test.item=",
+            "test.item+.more",
+            "test.=x.more",
+            "test.a+b",
+            "test.==",
+            "test.++",
+            "test.=+",
+        ]
+
+        for invalid_topic in invalid_topics:
+            with self.assertRaises(ValueError) as context:
+                Channel(topic=invalid_topic)
+            assert "wildcard" in str(context.exception).lower()
+
     def test_topic_validation_valid_chars(self):
         """Test that valid characters in topic are accepted."""
         valid_topics = [
@@ -97,8 +118,8 @@ class TestChannel(unittest.TestCase):
             "test123",
             "TEST",
             "Test.Mixed.Case",
-            "topic+",
-            "topic=",
+            "validity.+",
+            "validity.=",
             "a.b.c.d.e",
             "123.456",
             "a-b-c",
@@ -243,25 +264,26 @@ class TestChannel(unittest.TestCase):
 
     def test_matching_active_paths_single_wildcard(self):
         """Test matching_active_paths with single word wildcard (=)."""
-        # The = wildcard is converted to [a-zA-Z0-9-] which matches a single character
-        # not a single word. To match, we need a channel with = at the position
-        # where we want to match any single character from the allowed set
-        channel1 = Channel(topic="tes=.match")
+        # The = wildcard matches exactly one whole word
+        channel1 = Channel(topic="=.match")
         self.test_channels.append(channel1)
 
-        # Should match: the = becomes [a-zA-Z0-9-] in regex
-        matches = Channel.matching_active_paths("test.match")
-        # Check if our channel with = wildcard is in matches
-        has_wildcard_match = any("tes=.match" in p.name for p in matches)
-        # The wildcard should match (t-e-s-[any allowed char].match)
-        assert has_wildcard_match
+        matches = Channel.matching_active_paths("word.match")
+        assert any(p.name.startswith("=.match_") for p in matches)
+
+        # It must not span several words
+        matches = Channel.matching_active_paths("a.b.match")
+        assert not any(p.name.startswith("=.match_") for p in matches)
 
     def test_matching_active_paths_multi_wildcard(self):
         """Test matching_active_paths with multiple words wildcard (+)."""
         channel = Channel(topic="test.+")
         self.test_channels.append(channel)
 
-        # Should match zero or more words
+        # Should match one or more words, but not zero
+        assert not any(
+            p.name.startswith("test.+_") for p in Channel.matching_active_paths("test")
+        )
         matches_single = Channel.matching_active_paths("test.word")
         matches_multi = Channel.matching_active_paths("test.word.sub.topic")
 
