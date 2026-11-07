@@ -62,7 +62,8 @@ class Channel:
         Validate that topic contains only allowed characters.
 
         Valid characters: [a-zA-Z0-9+=.-]
-        The wildcards '=' and '+' must each be a whole dot-separated term.
+        The wildcards '=' and '+' must each be a whole dot-separated term, and a '+'
+        term cannot be directly next to an '=' or '+' term.
 
         Args:
             topic: The topic string to validate
@@ -84,11 +85,20 @@ class Channel:
             )
 
         # Wildcards must be alone between dots (e.g. 'a.=.b', never 'a.b=' or 'a.+b')
-        for term in topic.split("."):
+        terms = topic.split(".")
+        for term in terms:
             if ("=" in term or "+" in term) and term not in ("=", "+"):
                 raise ValueError(
                     f"Topic '{topic}' has invalid wildcard usage in term '{term}': "
                     "'=' and '+' must be alone between dots."
+                )
+
+        # '+' next to '=' (either order) or to another '+' is ambiguous and not allowed
+        for left, right in zip(terms, terms[1:]):
+            if {left, right} == {"=", "+"} or left == right == "+":
+                raise ValueError(
+                    f"Topic '{topic}' has invalid wildcard usage: '+' cannot be adjacent "
+                    "to '=' or to another '+'."
                 )
 
     def _create_channel(self) -> None:
@@ -224,36 +234,6 @@ class Channel:
                 channels.append(item)
 
         return sorted(channels)
-
-    @staticmethod
-    def matching_active_paths(topic: str) -> list[Path]:
-        """
-        Find all channel directories in the pubsub base directory that match the given topic using
-        regex.
-
-        Converts wildcards to regex patterns:
-        - '=' becomes '[a-zA-Z0-9-]+' (single whole word wildcard)
-        - '+' becomes one or more '.'-separated words (multiple words wildcard)
-
-        Args:
-            topic: The topic to match against
-
-        Returns:
-            List of Path objects for matching channel directories
-        """
-        matching_channels = []
-        for item in Channel.active_paths():
-            parts = item.name.split("_")
-            topic_pattern = parts[0]
-            regex_pattern = r"\.".join(
-                {"=": r"[a-zA-Z0-9-]+", "+": r"[a-zA-Z0-9-]+(?:\.[a-zA-Z0-9-]+)*"}.get(
-                    term, re.escape(term)
-                )
-                for term in topic_pattern.split(".")
-            )
-            if re.fullmatch(regex_pattern, topic):
-                matching_channels.append(item)
-        return matching_channels
 
     def __str__(self) -> str:
         return f"Channel(topic='{self.topic}', directory='{self.directory_name}')"

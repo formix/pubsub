@@ -109,6 +109,19 @@ class TestChannel(unittest.TestCase):
                 Channel(topic=invalid_topic)
             assert "wildcard" in str(context.exception).lower()
 
+    def test_topic_validation_plus_and_equals_cannot_be_adjacent(self):
+        """Test that '+' next to '=' (either order) or to another '+' is rejected."""
+        invalid_topics = ["+.=", "=.+", "a.+.=.b", "a.=.+.b", "a.=.=.+", "+.+.=", "+.+", "a.+.+.b"]
+        for invalid_topic in invalid_topics:
+            with self.assertRaises(ValueError) as context:
+                Channel(topic=invalid_topic)
+            assert "adjacent" in str(context.exception).lower()
+
+        # Separated by a literal word they are fine
+        for valid_topic in ["adjacent.+.b.=", "adjacent.=.b.+", "adjacent.=.="]:
+            channel = Channel(topic=valid_topic)
+            self.test_channels.append(channel)
+
     def test_topic_validation_valid_chars(self):
         """Test that valid characters in topic are accepted."""
         valid_topics = [
@@ -251,54 +264,6 @@ class TestChannel(unittest.TestCase):
             # Clean up
             if fake_dir.exists():
                 fake_dir.rmdir()
-
-    def test_matching_active_paths_exact(self):
-        """Test matching_active_paths with exact match."""
-        channel = Channel(topic="exact.match.topic")
-        self.test_channels.append(channel)
-
-        matches = Channel.matching_active_paths("exact.match.topic")
-
-        assert len(matches) > 0
-        assert any(p.name == channel.directory_name for p in matches)
-
-    def test_matching_active_paths_single_wildcard(self):
-        """Test matching_active_paths with single word wildcard (=)."""
-        # The = wildcard matches exactly one whole word
-        channel1 = Channel(topic="=.match")
-        self.test_channels.append(channel1)
-
-        matches = Channel.matching_active_paths("word.match")
-        assert any(p.name.startswith("=.match_") for p in matches)
-
-        # It must not span several words
-        matches = Channel.matching_active_paths("a.b.match")
-        assert not any(p.name.startswith("=.match_") for p in matches)
-
-    def test_matching_active_paths_multi_wildcard(self):
-        """Test matching_active_paths with multiple words wildcard (+)."""
-        channel = Channel(topic="test.+")
-        self.test_channels.append(channel)
-
-        # Should match one or more words, but not zero
-        assert not any(
-            p.name.startswith("test.+_") for p in Channel.matching_active_paths("test")
-        )
-        matches_single = Channel.matching_active_paths("test.word")
-        matches_multi = Channel.matching_active_paths("test.word.sub.topic")
-
-        assert any(p.name.startswith("test.+") for p in matches_single)
-        assert any(p.name.startswith("test.+") for p in matches_multi)
-
-    def test_matching_active_paths_no_match(self):
-        """Test matching_active_paths with no matching channels."""
-        channel = Channel(topic="specific.topic")
-        self.test_channels.append(channel)
-
-        matches = Channel.matching_active_paths("different.topic")
-
-        # Should not include our channel
-        assert not any(p.name == channel.directory_name for p in matches)
 
     def test_channel_base_dir(self):
         """Test that channels are created in the correct base directory."""

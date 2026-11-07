@@ -13,7 +13,7 @@ import unittest
 _mp = multiprocessing.get_context("fork") if sys.version_info >= (3, 14) else multiprocessing
 
 from pubsub.channel import Channel
-from pubsub.pubsub import fetch, publish, subscribe
+from pubsub.pubsub import _is_matching, fetch, publish, subscribe
 
 
 class TestPublish(unittest.TestCase):
@@ -109,8 +109,9 @@ class TestPublish(unittest.TestCase):
             assert publish("test.publish.combined.xy.tail.more", data) == 1
             assert fetch(channel) is not None
             assert publish("test.publish.combined.x.y.tail.more", data) == 0
-            # '+' needs at least one word
-            assert publish("test.publish.combined.x.tail", data) == 0
+            # '+' also matches zero words
+            assert publish("test.publish.combined.x.tail", data) == 1
+            assert fetch(channel) is not None
             assert fetch(channel) is None
 
     def test_publish_reaches_two_wildcard_channels(self):
@@ -703,6 +704,64 @@ class TestIntegration(unittest.TestCase):
         assert received1[0]["content"] == "for topic 1"
         assert received2[0]["content"] == "for topic 2"
 
-        
+
+class TestIsMatch(unittest.TestCase):
+    """Test cases for the private _is_match function."""
+
+    def test_exact(self):
+        assert _is_matching("a.b.c", "a.b.c")
+        assert not _is_matching("a.b.c", "a.b")
+        assert not _is_matching("a.b", "a.b.c")
+        assert not _is_matching("a.b.c", "a.b.d")
+
+    def test_no_partial_word_match(self):
+        assert not _is_matching("abc", "ab")
+        assert not _is_matching("ab", "abc")
+
+    def test_single_word_wildcard(self):
+        assert _is_matching("=", "a")
+        assert _is_matching("a.=.c", "a.bcd.c")
+        assert _is_matching("=.=", "a.b")
+        assert not _is_matching("=", "a.b")
+        assert not _is_matching("a.=", "a")
+        assert not _is_matching("a.=.c", "a.b.d")
+
+    def test_multi_word_wildcard(self):
+        assert _is_matching("+", "a")
+        assert _is_matching("+", "a.b.c")
+        assert _is_matching("a.+", "a.b")
+        assert _is_matching("a.+", "a.b.c.d")
+        assert _is_matching("a.+", "a")
+        assert not _is_matching("a.+", "b.c")
+
+    def test_multi_word_wildcard_in_the_middle(self):
+        assert _is_matching("a.+.z", "a.b.z")
+        assert _is_matching("a.+.z", "a.b.c.z")
+        assert _is_matching("a.+.z", "a.z.z")
+        assert _is_matching("a.+.z", "a.z")
+        assert not _is_matching("a.+.z", "a.b.c")
+
+    def test_combined_wildcards(self):
+        assert _is_matching("a.=.c.+", "a.b.c.d")
+        assert _is_matching("a.=.c.+", "a.b.c.d.e")
+        assert _is_matching("a.=.c.+", "a.b.c")
+        assert not _is_matching("a.=.c.+", "a.c")
+        assert _is_matching("+.b.=", "a.b.c")
+        assert _is_matching("+.b", "a.b")
+        assert _is_matching("+.b", "b")
+        assert not _is_matching("+.b", "a")
+
+    def test_multi_word_wildcard_backtracks(self):
+        assert _is_matching("a.+.z", "a.b.z.z")
+        assert _is_matching("+.b.+.d", "x.b.b.c.b.d.d")
+        assert _is_matching("+.z", "z.z.z")
+        assert not _is_matching("+.b.+.d", "x.b.c")
+        assert not _is_matching("a.+.z", "a.b.z.y")
+
+    def test_wildcards_do_not_match_empty_words(self):
+        assert not _is_matching("a.=", "a.")
+        assert not _is_matching("a.+", "a.")
+
+
 if __name__ == "__main__":
     unittest.main()

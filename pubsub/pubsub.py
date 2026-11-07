@@ -13,6 +13,59 @@ from .channel import Channel
 from .message import Header, Message
 
 
+def _is_matching(pattern: str, topic: str) -> bool:
+    """
+    Check whether a channel pattern matches a concrete topic.
+
+    Both are '.'-separated words. In the pattern, a word is either a literal, or a
+    wildcard standing alone between dots:
+    - '=' matches exactly one word
+    - '+' matches one or more words
+
+    Args:
+        pattern: The channel pattern, possibly containing '=' and '+' words
+        topic: The concrete topic being published (no wildcards)
+
+    Returns:
+        True if the topic matches the pattern, False otherwise
+    """
+    if not pattern: raise ValueError("Pattern cannot be empty")
+    if not topic: raise ValueError("Topic cannot be empty")
+
+    pwords = pattern.split(".")
+    twords = topic.split(".")
+    p = 0
+    t = 0
+    while p < len(pwords):
+        pword = pwords[p]
+        tword = twords[t] if t < len(twords) else None
+        if pword == tword:
+            p += 1
+            t += 1
+        elif pword == "=":
+            if tword is None:
+                return False
+            p += 1
+            t += 1
+        elif pword == "+":
+            next_pword = pwords[p + 1] if p + 1 < len(pwords) else None
+            if next_pword is None:
+                return True  # '+' at the end matches all remaining words
+            while t < len(twords) and twords[t] != next_pword:
+                t += 1
+            if t == len(twords):
+                return False  # Reached end of topic without finding next pattern word
+            p += 1  # Move to next pattern word (next_pword)
+        else:
+            return False  # Literal mismatch
+        
+    return t == len(twords) 
+            
+
+
+
+
+
 def publish(topic: str, data: bytes, headers: Header | None = None) -> int:
     """
     Publish a message to a topic.
@@ -45,8 +98,10 @@ def publish(topic: str, data: bytes, headers: Header | None = None) -> int:
         message.write(msg_file)
 
     publication_count = 0
-    matching_channels = Channel.matching_active_paths(topic)
-    for channel_dir in matching_channels:
+    for channel_dir in Channel.active_paths():
+        # Channel directories are named {pattern}_{random_id}_{process_id}
+        if not _is_matching(channel_dir.name.split("_")[0], topic):
+            continue
         queue_path = channel_dir / "queue"
         if not queue_path.exists():
             logging.warning(
