@@ -59,6 +59,27 @@ class TestChannel(unittest.TestCase):
             Channel(topic="")
         assert "cannot be empty" in str(context.exception)
 
+    def test_topic_validation_empty_or_blank_words(self):
+        """Test that empty and whitespace-only words raise ValueError."""
+        invalid_topics = [
+            " ",
+            "   ",
+            ".",
+            ".a",
+            "a.",
+            "a..b",
+            "a. .b",
+            "a.  ",
+            " .a",
+            "a.+.",
+            "=..a",
+        ]
+
+        for invalid_topic in invalid_topics:
+            with self.assertRaises(ValueError) as context:
+                Channel(topic=invalid_topic)
+            assert "empty or blank" in str(context.exception).lower(), invalid_topic
+
     def test_topic_validation_invalid_chars(self):
         """Test that invalid characters in topic raise ValueError."""
         invalid_topics = [

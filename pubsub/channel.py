@@ -34,7 +34,7 @@ class Channel:
         Raises:
             ValueError: If topic contains invalid characters
         """
-        self._validate_topic(topic)
+        self._validate_topic_pattern(topic)
         self._fp = -1
         self.topic = topic
         self.process_id = os.getpid()
@@ -57,7 +57,7 @@ class Channel:
         return "".join(random.choices(string.ascii_letters + string.digits, k=12))
 
     @staticmethod
-    def _validate_topic(topic: str) -> None:
+    def _validate_topic_pattern(topic: str) -> None:
         """
         Validate that topic contains only allowed characters.
 
@@ -69,10 +69,18 @@ class Channel:
             topic: The topic string to validate
 
         Raises:
-            ValueError: If topic is empty or contains invalid characters
+            ValueError: If topic is empty, has empty or blank words, or contains invalid
+                characters
         """
         if not topic:
             raise ValueError("Topic cannot be empty")
+
+        # Every dot-separated word must contain something other than whitespace
+        if any(not word.strip() for word in topic.split(".")):
+            raise ValueError(
+                f"Topic '{topic}' cannot contain empty or blank words "
+                "(leading, trailing or consecutive dots, or whitespace-only words)."
+            )
 
         # Check for invalid characters using regex
         if not re.match(r"^[a-zA-Z0-9+=.-]+$", topic):

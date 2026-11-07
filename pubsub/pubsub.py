@@ -20,7 +20,8 @@ def _is_matching(pattern: str, topic: str) -> bool:
     Both are '.'-separated words. In the pattern, a word is either a literal, or a
     wildcard standing alone between dots:
     - '=' matches exactly one word
-    - '+' matches one or more words
+    - '+' matches one or more words, or zero or more words when it is the last word
+    of the pattern
 
     Args:
         pattern: The channel pattern, possibly containing '=' and '+' words
@@ -34,36 +35,43 @@ def _is_matching(pattern: str, topic: str) -> bool:
 
     pwords = pattern.split(".")
     twords = topic.split(".")
-    p = 0
-    t = 0
-    while p < len(pwords):
-        pword = pwords[p]
-        tword = twords[t] if t < len(twords) else None
-        if pword == tword:
+
+    # A trailing '+' may match zero words: it simply absorbs whatever the rest of the
+    # pattern leaves over, so it is removed from the pattern and remembered
+    open_end = pwords[-1] == "+"
+    if open_end:
+        pwords.pop()
+
+    p = 0  # index of the current pattern word
+    t = 0  # index of the current topic word
+    plus_p = -1  # pattern index of the last '+' seen, -1 if none
+    plus_t = 0  # topic index just after the words absorbed so far by that '+'
+
+    while t < len(twords):
+        if p == len(pwords) and open_end:
+            return True  # the trailing '+' absorbs all remaining topic words
+        pword = pwords[p] if p < len(pwords) else None
+        if pword == "+":
+            # A '+' in the middle absorbs one word, and more only if what follows fails
+            plus_p = p
             p += 1
             t += 1
+            plus_t = t
         elif pword == "=":
-            if tword is None:
-                return False
             p += 1
             t += 1
-        elif pword == "+":
-            next_pword = pwords[p + 1] if p + 1 < len(pwords) else None
-            if next_pword is None:
-                return True  # '+' at the end matches all remaining words
-            while t < len(twords) and twords[t] != next_pword:
-                t += 1
-            if t == len(twords):
-                return False  # Reached end of topic without finding next pattern word
-            p += 1  # Move to next pattern word (next_pword)
+        elif pword is not None and pword == twords[t]:
+            p += 1
+            t += 1
+        elif plus_p != -1 and plus_t < len(twords):
+            # Mismatch: let the last '+' absorb one more word and resume right after it
+            plus_t += 1
+            t = plus_t
+            p = plus_p + 1
         else:
-            return False  # Literal mismatch
-        
-    return t == len(twords) 
-            
+            return False
 
-
-
+    return p == len(pwords)  # topic fully consumed: the pattern must be as well
 
 
 def publish(topic: str, data: bytes, headers: Header | None = None) -> int:
@@ -82,6 +90,13 @@ def publish(topic: str, data: bytes, headers: Header | None = None) -> int:
         ValueError: If topic contains invalid characters (must be [a-zA-Z0-9.-])
         RuntimeError: If unable to publish to any matching channels
     """
+
+    # Every dot-separated word must contain something other than whitespace
+    if any(not word.strip() for word in topic.split(".")):
+        raise ValueError(
+            f"Topic '{topic}' cannot contain empty or blank words "
+            "(leading, trailing or consecutive dots, or whitespace-only words)"
+        )
 
     # Validate that topic contains only allowed characters (no wildcards)
     if not re.match(r"^[a-zA-Z0-9.-]+$", topic):

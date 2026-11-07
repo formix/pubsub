@@ -109,7 +109,7 @@ class TestPublish(unittest.TestCase):
             assert publish("test.publish.combined.xy.tail.more", data) == 1
             assert fetch(channel) is not None
             assert publish("test.publish.combined.x.y.tail.more", data) == 0
-            # '+' also matches zero words
+            # a trailing '+' also matches zero words
             assert publish("test.publish.combined.x.tail", data) == 1
             assert fetch(channel) is not None
             assert fetch(channel) is None
@@ -177,6 +177,12 @@ class TestPublish(unittest.TestCase):
             _ = Channel(topic=topic)
 
         assert "invalid characters" in str(context.exception).lower()
+
+    def test_publish_with_empty_or_blank_words(self):
+        """Test that publishing to a topic with empty or whitespace-only words raises."""
+        for topic in ["", " ", "   ", ".", ".a", "a.", "a..b", "a. .b", "a.  "]:
+            with self.assertRaises(ValueError, msg=repr(topic)):
+                publish(topic, b"test data")
 
     def test_publish_with_wildcard_equals(self):
         """Test that publishing to a topic with = wildcard raises ValueError."""
@@ -705,8 +711,8 @@ class TestIntegration(unittest.TestCase):
         assert received2[0]["content"] == "for topic 2"
 
 
-class TestIsMatch(unittest.TestCase):
-    """Test cases for the private _is_match function."""
+class TestIsMatching(unittest.TestCase):
+    """Test cases for the private _is_matching function."""
 
     def test_exact(self):
         assert _is_matching("a.b.c", "a.b.c")
@@ -731,15 +737,15 @@ class TestIsMatch(unittest.TestCase):
         assert _is_matching("+", "a.b.c")
         assert _is_matching("a.+", "a.b")
         assert _is_matching("a.+", "a.b.c.d")
-        assert _is_matching("a.+", "a")
+        assert _is_matching("a.+", "a")  # a trailing + also matches zero words
         assert not _is_matching("a.+", "b.c")
 
     def test_multi_word_wildcard_in_the_middle(self):
-        assert _is_matching("a.+.z", "a.b.z")
-        assert _is_matching("a.+.z", "a.b.c.z")
-        assert _is_matching("a.+.z", "a.z.z")
-        assert _is_matching("a.+.z", "a.z")
-        assert not _is_matching("a.+.z", "a.b.c")
+        assert _is_matching("a.+.z", "a.b.z")   # match
+        assert _is_matching("a.+.z", "a.b.c.z") # match
+        assert _is_matching("a.+.z", "a.z.z")   # match
+        assert not _is_matching("a.+.z", "a.z")  # do not match: + needs one word
+        assert not _is_matching("a.+.z", "a.b.c") # do not match
 
     def test_combined_wildcards(self):
         assert _is_matching("a.=.c.+", "a.b.c.d")
@@ -748,19 +754,75 @@ class TestIsMatch(unittest.TestCase):
         assert not _is_matching("a.=.c.+", "a.c")
         assert _is_matching("+.b.=", "a.b.c")
         assert _is_matching("+.b", "a.b")
-        assert _is_matching("+.b", "b")
+        assert not _is_matching("+.b", "b")
         assert not _is_matching("+.b", "a")
+
+    def test_middle_plus_needs_a_word_but_trailing_plus_does_not(self):
+        assert not _is_matching("a.+.z", "a.z")
+        assert not _is_matching("+.z", "z")
+        assert _is_matching("a.+", "a")
+        assert _is_matching("+", "a")
+        assert _is_matching("a.=.+", "a.b")
+        assert not _is_matching("a.=.+", "a")
+        assert _is_matching("a.+.z.+", "a.b.z")
+        assert not _is_matching("a.+.z.+", "a.z")
+
+    def test_with_realistic_words(self):
+        # exact
+        assert _is_matching("orders.created", "orders.created")
+        assert not _is_matching("orders.created", "orders.deleted")
+        assert not _is_matching("orders.created", "orders.created.eu")
+        assert not _is_matching("orders", "order")
+        assert not _is_matching("order", "orders")
+
+        # '=' matches exactly one whole word
+        assert _is_matching("orders.=.created", "orders.eu-west.created")
+        assert _is_matching("=.created", "orders.created")
+        assert not _is_matching("orders.=.created", "orders.created")
+        assert not _is_matching("orders.=.created", "orders.eu.west.created")
+        assert not _is_matching("orders.=", "orders")
+
+        # trailing '+' matches zero or more words
+        assert _is_matching("logs.+", "logs")
+        assert _is_matching("logs.+", "logs.app")
+        assert _is_matching("logs.+", "logs.app.server1.error")
+        assert not _is_matching("logs.+", "metrics.app")
+        assert not _is_matching("logs.+", "logsapp.error")
+
+        # '+' in the middle matches one or more words
+        assert _is_matching("logs.+.error", "logs.app.error")
+        assert _is_matching("logs.+.error", "logs.app.server1.error")
+        assert _is_matching("logs.+.error", "logs.error.error")
+        assert not _is_matching("logs.+.error", "logs.error")
+        assert not _is_matching("logs.+.error", "logs.app.warning")
+        assert not _is_matching("logs.+.error", "logs.error.app")
+
+        # '+' at the start
+        assert _is_matching("+.error", "app.server1.error")
+        assert not _is_matching("+.error", "error")
+
+        # combinations
+        assert _is_matching("orders.=.+", "orders.eu")
+        assert _is_matching("orders.=.+", "orders.eu.created.late")
+        assert not _is_matching("orders.=.+", "orders")
+        assert _is_matching("+.payment.=", "shop.eu.payment.accepted")
+        assert _is_matching("+.payment.=.done", "shop.payment.payment.payment.done")
+        assert _is_matching("shop.+.payment.=.+", "shop.eu.payment.accepted")
+        assert _is_matching("shop.+.payment.=.+", "shop.eu.fr.payment.accepted.late.now")
+        assert not _is_matching("shop.+.payment.=.+", "shop.payment.accepted")
+        assert not _is_matching("shop.+.payment.=.+", "shop.eu.payment")
+
+        # hyphens and digits are part of words
+        assert _is_matching("sensor-1.=.temp-c", "sensor-1.room-42.temp-c")
+        assert not _is_matching("sensor-1.=.temp-c", "sensor-2.room-42.temp-c")
 
     def test_multi_word_wildcard_backtracks(self):
         assert _is_matching("a.+.z", "a.b.z.z")
         assert _is_matching("+.b.+.d", "x.b.b.c.b.d.d")
         assert _is_matching("+.z", "z.z.z")
+        assert _is_matching("+.b.+", "x.b")  # trailing + matches zero words
         assert not _is_matching("+.b.+.d", "x.b.c")
         assert not _is_matching("a.+.z", "a.b.z.y")
-
-    def test_wildcards_do_not_match_empty_words(self):
-        assert not _is_matching("a.=", "a.")
-        assert not _is_matching("a.+", "a.")
 
 
 if __name__ == "__main__":
