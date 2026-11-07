@@ -7,6 +7,7 @@ import signal
 import struct
 import time
 from collections.abc import Callable
+from pathlib import Path
 
 from .abstractions import get_base_dir
 from .channel import Channel
@@ -108,9 +109,19 @@ def publish(topic: str, data: bytes, headers: Header | None = None) -> int:
     message = Message(topic=topic, content=data, headers=headers)
     tmp_dir = get_base_dir() / "tmp"
     tmp_dir.mkdir(exist_ok=True)  # Ensure temporary directory exists
-    message_temp_file = tmp_dir / f"{message.id}"
-    with open(message_temp_file, "wb") as msg_file:
-        message.write(msg_file)
+
+    def write_temp_file() -> Path:
+        """Write the message to tmp/<id>, taking the next id if that file already exists."""
+        while True:
+            temp_file = tmp_dir / f"{message.id}"
+            try:
+                with open(temp_file, "xb") as msg_file:
+                    message.write(msg_file)
+                return temp_file
+            except FileExistsError:
+                message.id += 1
+
+    message_temp_file = write_temp_file()
 
     publication_count = 0
     for channel_dir in Channel.active_paths():
@@ -124,8 +135,15 @@ def publish(topic: str, data: bytes, headers: Header | None = None) -> int:
             )
             continue
         try:
-            message_file_path = channel_dir / str(message.id)
-            os.link(str(message_temp_file), str(message_file_path))
+            while True:
+                try:
+                    os.link(str(message_temp_file), str(channel_dir / str(message.id)))
+                    break
+                except FileExistsError:
+                    # The id is already used in this channel: add 1 to it and retry
+                    message_temp_file.unlink()
+                    message.id += 1
+                    message_temp_file = write_temp_file()
             with os.fdopen(
                 os.open(str(queue_path), os.O_WRONLY | os.O_NONBLOCK), "wb"
             ) as queue_file:

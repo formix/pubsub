@@ -5,6 +5,7 @@ import sys
 import threading
 import time
 import unittest
+from unittest import mock
 
 # Python 3.14+ changed the default multiprocessing start method on Linux from
 # 'fork' to 'forkserver', which requires pickling the target function. Local
@@ -13,6 +14,7 @@ import unittest
 _mp = multiprocessing.get_context("fork") if sys.version_info >= (3, 14) else multiprocessing
 
 from pubsub.channel import Channel
+from pubsub.message import Message
 from pubsub.pubsub import _is_matching, fetch, publish, subscribe
 
 
@@ -134,6 +136,24 @@ class TestPublish(unittest.TestCase):
             assert publish("test.publish.multi.a.b", data) == 1
             assert fetch(channel_plus) is not None
             assert fetch(channel_eq) is None
+
+    def test_publish_retries_with_next_id_when_message_id_collides(self):
+        """Test that a message id collision adds 1 to the id instead of losing the message."""
+        topic = "test.publish.collision"
+        channel = Channel(topic=topic)
+        fixed_id = 1_000_000_000_000_000
+
+        with channel, mock.patch.object(Message, "_next_id", return_value=fixed_id):
+            assert publish(topic, b"first") == 1
+            # Same id generated again: the link in the channel directory already exists
+            assert publish(topic, b"second") == 1
+            assert publish(topic, b"third") == 1
+
+            messages = [fetch(channel) for _ in range(3)]
+            assert all(m is not None for m in messages)
+            assert [m.content for m in messages] == [b"first", b"second", b"third"]
+            assert [m.id for m in messages] == [fixed_id, fixed_id + 1, fixed_id + 2]
+            assert fetch(channel) is None
 
     def test_publish_no_matching_channels(self):
         """Test publishing when no channels match."""
