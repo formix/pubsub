@@ -32,7 +32,7 @@ The core use case is communication between separate processes. Create two files:
        def on_message(msg):
            print(f"Received: {msg.content.decode()}")
 
-       # Blocks and listens until terminated with Ctrl+C or SIGTERM
+       # Blocks and listens until terminated with Ctrl+C (or SIGTERM on Linux and macOS)
        subscribe(channel, on_message)
 
 **publisher.py**
@@ -102,7 +102,7 @@ Use wildcards to subscribe to multiple topics:
        def handle_message(msg):
            print(f"[{msg.topic}] {msg.content.decode()}")
 
-       # Listens indefinitely; terminate with SIGTERM/SIGINT
+       # Listens indefinitely; terminate with SIGTERM/SIGINT (Ctrl+C or Ctrl+Break on Windows)
        subscribe(channel, handle_message)
 
    # Publish to concrete topics
@@ -181,4 +181,6 @@ Best Practices
 2. **Always use context managers** - Ensures proper resource cleanup
 3. **Publish to concrete topics** - Wildcards are only for subscribing
 4. **Use meaningful topic hierarchies** - e.g., ``app.service.event``
-5. **Terminate subscribers gracefully** - Use SIGTERM/SIGINT for clean shutdown; timeouts are optional for demos or time-bound operations
+5. **Terminate subscribers gracefully** - Use SIGTERM/SIGINT for clean shutdown (on Windows, Ctrl+C or Ctrl+Break: SIGTERM is never delivered there); timeouts are optional for demos or time-bound operations
+6. **One consumer per channel** - Calling ``subscribe`` on a channel that is already being listened to, or ``fetch`` on it, raises ``RuntimeError``
+7. **Don't rely on order between publishers** - Messages from one publisher arrive in order; messages published concurrently by several publishers may be delivered in any order

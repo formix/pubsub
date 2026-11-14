@@ -8,7 +8,7 @@ A serverless, zero-dependency publish-subscribe library for Python interprocess 
 
 ## Why Serverless?
 
-Unlike traditional pub/sub systems (Redis, RabbitMQ, ZeroMQ), **formix-pubsub requires no broker, no server process, and no external service**. Messages are routed through kernel FIFO named pipes and stored on the shared-memory filesystem (`/dev/shm` on Linux), making communication fast and entirely local.
+Unlike traditional pub/sub systems (Redis, RabbitMQ, ZeroMQ), **formix-pubsub requires no broker, no server process, and no external service**. Messages are stored as files in a per-subscriber directory (on the shared-memory filesystem, `/dev/shm`, on Linux) and subscribers are woken up by the operating system's file-change notifications, making communication fast and entirely local. It runs on **Linux, macOS and Windows**.
 
 - **No infrastructure** — install and use, nothing to start or configure
 - **Zero dependencies** — pure Python, standard library only
@@ -38,7 +38,7 @@ with channel:
     def on_message(msg):
         print(f"Received: {msg.content.decode()}")
 
-    # Blocks and listens until terminated with Ctrl+C (SIGINT) or SIGTERM
+    # Blocks and listens until terminated with Ctrl+C (SIGINT), or SIGTERM on Linux and macOS
     subscribe(channel, on_message)
 ```
 
@@ -227,7 +227,23 @@ with channel:
 
 | Environment Variable | Description | Default |
 |---------------------|-------------|---------|
-| `PUBSUB_HOME` | Directory for channel and message storage | `/dev/shm/pubsub` on Linux, system temp dir elsewhere |
+| `PUBSUB_HOME` | Directory for channel and message storage | `/dev/shm/pubsub` on Linux, `<system temp dir>/pubsub` elsewhere |
+| `PUBSUB_WATCHER` | Set to `poll` to wait for messages by polling instead of using the operating system's file-change notifications | notifications, with polling as automatic fallback |
+
+## Platform Support
+
+| | Linux | macOS | Windows |
+|---|---|---|---|
+| Storage | `/dev/shm/pubsub` | `<temp>/pubsub` | `%TEMP%\pubsub` |
+| Wake-up on new message | inotify | kqueue | `FindFirstChangeNotification` |
+| Stopping a subscriber | `SIGINT`, `SIGTERM` | `SIGINT`, `SIGTERM` | Ctrl+C (`SIGINT`), Ctrl+Break (`SIGBREAK`) |
+
+Notes:
+
+- **Everything lives in one directory.** Publishers and subscribers must use the same `PUBSUB_HOME`. By default that directory belongs to the current user, so set `PUBSUB_HOME` to a shared directory to let several users exchange messages.
+- **Windows:** the storage directory should be on NTFS. On file systems without hard links (FAT, exFAT, some network shares) messages are copied instead, which is slower. `SIGTERM` is never delivered on Windows: a process killed with `Stop-Process` or `taskkill` is stopped immediately, without the graceful shutdown. Use Ctrl+C or Ctrl+Break, or run `subscribe` with a timeout.
+- **Windows path length:** without long path support, Windows limits paths to 259 characters. If a topic is too long for that, `Channel(...)` raises an `OSError` that explains how to lift the limit (re-run the Python installer and tick *Disable path length limit*, or set the `LongPathsEnabled` registry value to `1`).
+- **Network and WSL file systems** (`/mnt/c` in WSL, NFS, SMB) do not reliably report changes. pubsub still works there, but notices new messages after at most 100 ms instead of immediately.
 
 ## API Summary
 
@@ -235,23 +251,47 @@ with channel:
 
 Publish a message to all channels matching `topic`. Returns the number of channels that received the message.
 
-### `fetch(channel) -> Message | None`
+### `fetch(channel, auto_ack=True) -> Message | None`
 
-Fetch the next message from a channel without blocking. Returns `None` if the queue is empty.
+Fetch the next message from a channel without blocking. Returns `None` if the channel is empty. Raises `RuntimeError` if a `subscribe` is listening on the channel.
 
-### `subscribe(channel, callback, timeout_seconds=0) -> int`
+By default the message is deleted from the channel as soon as it is fetched. With `auto_ack=False` the message stays locked in the channel until you dispose of it with `ack` or `nack`.
 
-Block and deliver messages to `callback` as they arrive. Set `timeout_seconds` to limit listening duration (0 = indefinite). Returns the number of messages processed, or -1 if interrupted by a signal.
+### `ack(channel, message)` and `nack(channel, message, poison=False)`
+
+For messages fetched with `auto_ack=False`: `ack` deletes the message, `nack` gives it back to the channel under its own id, so a later `fetch` or `subscribe` delivers it again (after the messages already listed, in id order). Calling them twice, or after the channel is closed, does nothing. A message that is neither acknowledged nor rejected stays locked until the channel is closed. A message that is rejected over and over is delivered over and over.
+
+To stop a message that would fail every time, reject it with `nack(channel, message, poison=True)`: it is moved to the `poison` folder of the channel (`channel.poison_path`) under its own name and this channel never delivers it again, so that whatever handles failures can deal with it (read a file with `Message.read`). Every `nack` is logged: at `INFO` level when the message goes back to the channel, at `WARNING` level when it is moved as poison. The poison folder is deleted with the channel when it is closed, so handle the poison messages before that.
+
+```python
+message = fetch(channel, auto_ack=False)
+if message is not None:
+    try:
+        handle(message)
+        ack(channel, message)
+    except TemporaryError:
+        nack(channel, message)  # try again later
+    except PermanentError:
+        nack(channel, message, poison=True)  # never retry this one
+```
+
+### `subscribe(channel, callback, timeout_seconds=0, auto_ack=True) -> int`
+
+Block and deliver messages to `callback` as they arrive. Set `timeout_seconds` to limit listening duration (0 = indefinite). Returns the number of messages processed, or -1 if interrupted by a signal. A channel has a single consumer: calling `subscribe` on a channel that is already being listened to raises `RuntimeError`, and so does calling `fetch` on it (including from the callback). With `auto_ack=False`, the callback must call `ack` or `nack` itself; a message it leaves alone, or whose callback raises, stays locked in the channel.
 
 ### `Channel(topic)`
 
-Represents a subscription endpoint. Use as a context manager to ensure cleanup. Topics may include `=` and `+` wildcards for pattern matching.
+Represents a subscription endpoint. Its directory is created by `open()` (or by entering the `with` block) and deleted, with any unread message, by `close()`. Messages published before the channel is open are not delivered to it. Topics may include `=` and `+` wildcards for pattern matching.
+
+### `Channel.cleanup_inactive()`
+
+Deletes what crashed processes left behind: channels of processes that are no longer running, interrupted deletions, and temporary message files older than one hour. It runs only when you call it.
 
 ### `Message`
 
 A received message with the following attributes:
 
-- `id` — unique message identifier
+- `id` — unique message identifier (64 bits; the upper bits are the creation time in milliseconds)
 - `timestamp` — microsecond-precision timestamp
 - `topic` — the concrete topic the message was published to
 - `content` — payload as `bytes`
@@ -260,10 +300,11 @@ A received message with the following attributes:
 ## Best Practices
 
 1. **Use separate processes** — designed for true parallelism without GIL limitations
-2. **Always use context managers** — `with Channel(...) as ch:` ensures FIFO cleanup
+2. **Always use context managers** — `with Channel(...) as ch:` ensures the channel directory is cleaned up
 3. **Publish to concrete topics** — wildcards are for subscribing only
 4. **Structure topic hierarchies** — e.g. `app.service.event` for flexible wildcard matching
-5. **Stop subscribers with signals** — `SIGTERM` or `SIGINT` triggers graceful shutdown
+5. **Stop subscribers with signals** — `SIGTERM` or `SIGINT` (Ctrl+C or Ctrl+Break on Windows) triggers graceful shutdown
+6. **Don't rely on order between publishers** — messages from one publisher arrive in the order they were published, but messages published concurrently by several publishers may be delivered in any order
 
 ## License
 

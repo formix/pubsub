@@ -21,6 +21,62 @@ _id_lock = threading.Lock()
 _last_id_ms = 0
 _id_sequence = 0
 
+# Message files are named after the message id, zero-padded to the length of the largest
+# 64-bit id (18446744073709551615), so that sorting the names as strings gives the numeric
+# order of the ids on every platform and file system.
+MESSAGE_FILE_NAME_LENGTH = 20
+
+# A message file being read is renamed with this suffix. Its name is then no longer a message
+# file name, so no listing hands it out a second time.
+LOCKED_SUFFIX = ".locked"
+
+# A message rejected as poison is moved to this sub-directory of its channel directory.
+POISON_DIRECTORY = "poison"
+
+# Length of the longest path below a channel directory: "<id>.locked" or "poison/<id>".
+CHANNEL_ENTRY_MAX_LENGTH = max(
+    MESSAGE_FILE_NAME_LENGTH + len(LOCKED_SUFFIX),
+    len(POISON_DIRECTORY) + 1 + MESSAGE_FILE_NAME_LENGTH,
+)
+
+
+def message_file_name(message_id: int) -> str:
+    """
+    Build the file name of a message from its id: the id zero-padded to 20 digits.
+
+    Args:
+        message_id: The message id (an unsigned 64-bit integer)
+
+    Returns:
+        The 20-digit file name
+    """
+    if not 0 <= message_id < (1 << 64):
+        raise ValueError(f"Message id {message_id} is not an unsigned 64-bit integer")
+    return f"{message_id:0{MESSAGE_FILE_NAME_LENGTH}d}"
+
+
+def is_message_file_name(name: str) -> bool:
+    """Tell whether a file name is a message file name (exactly 20 ASCII digits)."""
+    return len(name) == MESSAGE_FILE_NAME_LENGTH and name.isascii() and name.isdigit()
+
+
+def message_id_from_file_name(name: str) -> int:
+    """
+    Parse a message file name back into the message id.
+
+    Raises:
+        ValueError: If the name is not a message file name
+    """
+    if not is_message_file_name(name):
+        raise ValueError(f"'{name}' is not a message file name")
+    return int(name)
+
+
+def message_id_time_ms(message_id: int) -> int:
+    """Return the creation time, in ms since the epoch, stored in the upper bits of an id."""
+    return message_id >> (_ID_PROCESS_BITS + _ID_SEQUENCE_BITS)
+
+
 # Magic number to identify message format ("PMSG" in ASCII)
 MESSAGE_MAGIC_NUMBER = 0x504D5347
 
@@ -51,6 +107,11 @@ class Message:
         self.topic = topic
         self.content = content
         self.headers = headers if headers is not None else {}
+
+    @property
+    def file_name(self) -> str:
+        """The name of the files that store this message (the id padded to 20 digits)."""
+        return message_file_name(self.id)
 
     @staticmethod
     def _next_id() -> int:

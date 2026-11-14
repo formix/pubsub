@@ -4,8 +4,10 @@ Welcome to formix-pubsub's documentation!
 A serverless, zero-dependency publish-subscribe library for Python interprocess communication.
 
 Unlike traditional pub/sub systems that require a broker or server process, **formix-pubsub**
-uses kernel FIFO named pipes and the shared-memory filesystem (``/dev/shm`` on Linux) for
-message routing. There is nothing to install, start, or configure beyond the package itself.
+stores each message as a file in a per-subscriber directory (on the shared-memory filesystem,
+``/dev/shm``, on Linux) and wakes subscribers up with the operating system's file-change
+notifications. It runs on Linux, macOS and Windows. There is nothing to install, start, or
+configure beyond the package itself.
 
 .. toctree::
    :maxdepth: 2
@@ -24,7 +26,8 @@ Features
 * **Topic-based routing** with wildcard support (``=`` for single word, ``+`` for multiple words)
 * **Multiple subscribers** can listen to the same topic independently
 * **Message persistence** via file system until consumed
-* **Non-blocking fetch** using FIFO queues
+* **Non-blocking fetch** of the next message of a channel
+* **Linux, macOS and Windows** support, with native file-change notifications and a polling fallback
 * **Automatic cleanup** of stale channels from terminated processes
 * **Context manager support** for resource cleanup
 
@@ -54,7 +57,7 @@ The core use case is communication between separate processes. Create two files:
        def on_message(msg):
            print(f"Received: {msg.content.decode()}")
 
-       # Blocks until terminated with Ctrl+C or SIGTERM
+       # Blocks until terminated with Ctrl+C (or SIGTERM on Linux and macOS)
        subscribe(channel, on_message)
 
 **publisher.py**

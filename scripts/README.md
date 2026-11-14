@@ -26,6 +26,9 @@ This directory contains modular deployment scripts for formix-pubsub. Each scrip
 - 0: All tests passed
 - 1: One or more tests failed
 
+> **Windows:** the deployment scripts are Bash scripts. Run them from Git Bash or WSL. To run
+> only the tests from PowerShell, use `scripts/run-tests.ps1`.
+
 ### 3. build-docs.sh
 **Purpose:** Build Sphinx documentation
 **Actions:**

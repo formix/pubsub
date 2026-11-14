@@ -1,0 +1,34 @@
+name: Tests
+
+on:
+  push:
+    branches: [main, dev, "2.*"]
+  pull_request:
+
+jobs:
+  test:
+    name: Python ${{ matrix.python-version }} on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        python-version: ["3.11", "3.12", "3.13", "3.14"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install
+        run: python -m pip install pytest
+
+      - name: Test (native file-change notifications)
+        run: python -m pytest tests/ -v
+
+      - name: Test (polling fallback)
+        env:
+          PUBSUB_WATCHER: poll
+        run: python -m pytest tests/ -v

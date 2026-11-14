@@ -2,9 +2,19 @@
 
 import os
 import unittest
+from pathlib import Path
+from unittest import mock
 
-from pubsub.abstractions import get_base_dir
+from pubsub.abstractions import get_base_dir, get_purge_dir
 from pubsub.channel import Channel
+
+
+def _entries(directory):
+    """List the entries of a directory, or nothing if it does not exist."""
+    try:
+        return list(os.scandir(directory))
+    except FileNotFoundError:
+        return []
 
 
 class TestChannel(unittest.TestCase):
@@ -28,8 +38,13 @@ class TestChannel(unittest.TestCase):
         assert channel.topic == topic
         assert channel.process_id == os.getpid()
         assert len(channel.random_id) == 12
+        # Nothing is created on disk until the channel is opened
+        assert not channel.is_open
+        assert not channel.directory_path.exists()
+
+        channel.open()
+        assert channel.is_open
         assert channel.directory_path.exists()
-        assert channel.queue_path.exists()
 
     def test_channel_directory_format(self):
         """Test that channel directory follows the correct format."""
@@ -167,24 +182,84 @@ class TestChannel(unittest.TestCase):
             assert channel.topic == valid_topic
 
     def test_channel_cleanup(self):
-        """Test that cleanup removes directory and FIFO."""
+        """Test that close removes the directory."""
         channel = Channel(topic="test.cleanup")
         directory_path = channel.directory_path
-        queue_path = channel.queue_path
 
-        # Verify they exist
-        assert directory_path.exists()
-        assert queue_path.exists()
-
-        # Open channel (required before close can cleanup)
         channel.open()
+        assert directory_path.exists()
 
-        # Cleanup
         channel.close()
 
-        # Verify they're removed
         assert not directory_path.exists()
-        assert not queue_path.exists()
+        assert not channel.is_open
+
+    def test_close_never_opened_channel_is_a_no_op(self):
+        """Test that closing a channel that was never opened creates and leaves nothing."""
+        channel = Channel(topic="test.neveropened")
+
+        channel.close()
+
+        assert not channel.directory_path.exists()
+        assert not any(
+            channel.directory_name in entry.name for entry in _entries(get_purge_dir())
+        )
+
+    def test_open_is_idempotent(self):
+        """Test that opening an open channel does nothing."""
+        channel = Channel(topic="test.openagain")
+        self.test_channels.append(channel)
+        channel.open()
+        (channel.directory_path / "marker").write_bytes(b"x")
+
+        channel.open()
+
+        assert (channel.directory_path / "marker").exists()
+
+    def test_close_leaves_nothing_in_purge(self):
+        """Test that the purge directory keeps nothing of a closed channel."""
+        channel = Channel(topic="test.purged")
+        channel.open()
+        (channel.directory_path / "00000000000000000001").write_bytes(b"unread")
+
+        channel.close()
+
+        assert not channel.directory_path.exists()
+        assert not any(
+            channel.directory_name in entry.name for entry in _entries(get_purge_dir())
+        )
+
+    def test_reopen_after_close_gives_a_clean_channel(self):
+        """Test that a channel closed then reopened immediately starts empty."""
+        channel = Channel(topic="test.reopen")
+        self.test_channels.append(channel)
+        channel.open()
+        (channel.directory_path / "00000000000000000001").write_bytes(b"old")
+        channel.close()
+
+        channel.open()
+
+        assert channel.is_open
+        assert list(channel.directory_path.iterdir()) == []
+
+    def test_close_deletes_in_place_when_the_move_fails(self):
+        """Test that close still deletes the directory if it cannot be moved to purge."""
+        channel = Channel(topic="test.moveerror")
+        channel.open()
+        (channel.directory_path / "00000000000000000001").write_bytes(b"x")
+
+        with mock.patch("pubsub.channel.os.rename", side_effect=PermissionError("locked")):
+            channel.close()
+
+        assert not channel.directory_path.exists()
+
+    def test_open_failure_raises_runtime_error(self):
+        """Test that an unusable directory is reported as a RuntimeError."""
+        channel = Channel(topic="test.openfail")
+        with mock.patch.object(Path, "mkdir", side_effect=PermissionError("denied")):
+            with self.assertRaises(RuntimeError):
+                channel.open()
+        assert not channel.is_open
 
     def test_channel_context_manager(self):
         """Test channel as a context manager."""
@@ -192,16 +267,13 @@ class TestChannel(unittest.TestCase):
 
         with Channel(topic=topic) as channel:
             directory_path = channel.directory_path
-            queue_path = channel.queue_path
 
             # Inside context: resources exist
             assert directory_path.exists()
-            assert queue_path.exists()
             assert channel.topic == topic
 
         # After context: resources cleaned up
         assert not directory_path.exists()
-        assert not queue_path.exists()
 
     def test_str_representation(self):
         """Test channel string representation."""
@@ -252,6 +324,8 @@ class TestChannel(unittest.TestCase):
         channel1 = Channel(topic="test.active1")
         channel2 = Channel(topic="test.active2")
         self.test_channels.extend([channel1, channel2])
+        channel1.open()
+        channel2.open()
 
         active = Channel.active_paths()
 
@@ -312,6 +386,7 @@ class TestChannel(unittest.TestCase):
     def test_cleanup_with_files(self):
         """Test cleanup removes files in the channel directory."""
         channel = Channel(topic="test.files")
+        channel.open()
 
         # Create some test files in the channel directory
         test_file1 = channel.directory_path / "message1.dat"
@@ -324,9 +399,6 @@ class TestChannel(unittest.TestCase):
         # Verify files exist
         assert test_file1.exists()
         assert test_file2.exists()
-
-        # Open channel (required before close can cleanup)
-        channel.open()
 
         # Cleanup should remove everything
         channel.close()

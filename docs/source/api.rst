@@ -24,3 +24,7 @@ Functions
 .. autofunction:: pubsub.subscribe
 
 .. autofunction:: pubsub.fetch
+
+.. autofunction:: pubsub.ack
+
+.. autofunction:: pubsub.nack

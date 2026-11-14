@@ -236,3 +236,69 @@ class TestMessageId(unittest.TestCase):
         id_ms = {i >> (self.PROCESS_BITS + self.SEQUENCE_BITS) for i in ids}
         assert len(id_ms) == 3  # 4096 ids per millisecond, so 8202 ids span 3 milliseconds
 
+
+
+class TestMessageFileName(unittest.TestCase):
+    """Test cases for the zero-padded message file names."""
+
+    def test_file_name_is_padded_to_20_digits(self):
+        from pubsub.message import message_file_name
+
+        assert message_file_name(1) == "00000000000000000001"
+        assert message_file_name(0) == "0" * 20
+        assert message_file_name((1 << 64) - 1) == "18446744073709551615"
+        assert len(message_file_name(123456789)) == 20
+
+    def test_string_order_is_numeric_order(self):
+        from pubsub.message import message_file_name
+
+        ids = [9, 10, 100, 1_000_000_000_000_000, (1 << 64) - 1, 2, 99]
+        names = sorted(message_file_name(i) for i in ids)
+        assert names == [message_file_name(i) for i in sorted(ids)]
+
+    def test_round_trip(self):
+        from pubsub.message import message_file_name, message_id_from_file_name
+
+        for message_id in (0, 7, 10**15, (1 << 64) - 1):
+            assert message_id_from_file_name(message_file_name(message_id)) == message_id
+
+    def test_is_message_file_name(self):
+        from pubsub.message import is_message_file_name, message_file_name
+
+        assert is_message_file_name(message_file_name(5))
+        assert not is_message_file_name("5")  # not padded
+        assert not is_message_file_name("0" * 19)
+        assert not is_message_file_name("0" * 21)
+        assert not is_message_file_name("0" * 19 + "x")
+        assert not is_message_file_name("." + "0" * 19)
+        assert not is_message_file_name("queue")
+        assert not is_message_file_name("٠" * 20)  # non-ASCII digits
+
+    def test_invalid_ids_and_names(self):
+        from pubsub.message import message_file_name, message_id_from_file_name
+
+        with self.assertRaises(ValueError):
+            message_file_name(-1)
+        with self.assertRaises(ValueError):
+            message_file_name(1 << 64)
+        with self.assertRaises(ValueError):
+            message_id_from_file_name("12")
+
+    def test_message_file_name_property(self):
+        from pubsub.message import message_file_name
+
+        message = Message(topic="a.b", content=b"x")
+        assert message.file_name == message_file_name(message.id)
+
+    def test_id_time_is_in_the_upper_bits(self):
+        from pubsub import message as message_module
+        from pubsub.message import message_id_time_ms
+
+        # Other tests may have pushed the generator ahead of the clock: start it afresh
+        with mock.patch.object(message_module, "_last_id_ms", 0), mock.patch.object(
+            message_module, "_id_sequence", 0
+        ):
+            before = int(time.time() * 1000)
+            message = Message(topic="a.b", content=b"x")
+            after = int(time.time() * 1000)
+        assert before <= message_id_time_ms(message.id) <= after + 1

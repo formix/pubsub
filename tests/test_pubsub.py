@@ -15,8 +15,41 @@ _mp = multiprocessing.get_context("fork") if sys.version_info >= (3, 14) else mu
 
 from pubsub.abstractions import get_base_dir
 from pubsub.channel import Channel
-from pubsub.message import Message
+from pubsub.message import Message, message_file_name
 from pubsub.pubsub import _is_matching, fetch, publish, subscribe
+
+
+def _report(result_queue, ready, topic, timeout, record, extra=None):
+    """Subscribe to a topic in this process and send what was received to the parent."""
+    channel = Channel(topic=topic)
+    received = []
+    state = {"calls": 0}
+
+    def callback(message):
+        state["calls"] += 1
+        if record == "raise-first" and state["calls"] == 1:
+            raise RuntimeError("Test exception")
+        if record == "dict":
+            received.append({"content": message.content.decode(), "topic": message.topic})
+        else:
+            received.append(message.content.decode())
+
+    with channel:
+        ready.set()  # the channel exists: publishers can now reach it
+        count = subscribe(channel, callback, timeout_seconds=timeout)
+    result_queue.put((extra, count, received))
+
+
+def _start_subscriber(topic, timeout, record="text", extra=None):
+    """Start a subscriber process and wait until its channel is open."""
+    result_queue = _mp.Queue()
+    ready = _mp.Event()
+    process = _mp.Process(
+        target=_report, args=(result_queue, ready, topic, timeout, record, extra)
+    )
+    process.start()
+    assert ready.wait(30), "the subscriber process did not become ready"
+    return process, result_queue
 
 
 class TestPublish(unittest.TestCase):
@@ -152,7 +185,8 @@ class TestPublish(unittest.TestCase):
             with self.assertRaises(RuntimeError) as context:
                 publish(topic, b"second")
             assert "collision" in str(context.exception).lower()
-            assert not (tmp_dir / str(fixed_id)).exists()  # temporary file is cleaned up
+            # temporary file is cleaned up
+            assert not (tmp_dir / message_file_name(fixed_id)).exists()
 
             # The first message is untouched and nothing else was delivered
             message = fetch(channel)
@@ -168,7 +202,8 @@ class TestPublish(unittest.TestCase):
         fixed_id = 1_000_000_000_000_001
         tmp_dir = get_base_dir() / "tmp"
         tmp_dir.mkdir(exist_ok=True)
-        existing = tmp_dir / str(fixed_id)  # as if another process is publishing this id
+        # as if another process is publishing this id
+        existing = tmp_dir / message_file_name(fixed_id)
         existing.write_bytes(b"other publisher")
 
         try:
@@ -491,46 +526,17 @@ class TestSubscribe(unittest.TestCase):
         """Test that subscribe continues on callback exception."""
         topic = "test.subscribe.exception"
 
-        def subscriber_process(topic, result_queue):
-            """Subprocess that subscribes with callback that raises exception."""
-            channel = Channel(topic=topic)
-            received = []
-            call_count = [0]
+        sub_proc, result_queue = _start_subscriber(topic, 0.5, record="raise-first")
 
-            with channel:
-                def callback(message):
-                    call_count[0] += 1
-                    if call_count[0] == 1:
-                        raise RuntimeError("Test exception")
-                    received.append(message.content.decode())
-
-                count = subscribe(channel, callback, timeout_seconds=0.5)
-
-            # Send results back to parent
-            result_queue.put({"count": count, "received": received})
-
-        # Create queue for results
-        result_queue = _mp.Queue()
-
-        # Start subscriber in subprocess
-        sub_proc = _mp.Process(target=subscriber_process, args=(topic, result_queue))
-        sub_proc.start()
-
-        # Publish messages
-        time.sleep(0.1)  # Ensure subscriber is ready
         publish(topic, b"message 1")
         publish(topic, b"message 2")
 
-        # Wait for subprocess
         sub_proc.join()
-
-        # Get results from queue
-        result = result_queue.get(timeout=1)
+        _, count, received = result_queue.get(timeout=10)
 
         # Should process both messages despite exception
-        assert result["count"] == 2
-        assert len(result["received"]) == 1  # Only second message added
-        assert result["received"][0] == "message 2"
+        assert count == 2
+        assert received == ["message 2"]  # Only the second message was recorded
 
     def test_subscribe_on_closed_channel(self):
         """Test that subscribe raises RuntimeError on a channel that has been closed."""
@@ -550,36 +556,13 @@ class TestIntegration(unittest.TestCase):
         """Test complete publish-subscribe flow."""
         topic = "test.integration.flow"
 
-        def subscriber_process(topic, result_queue):
-            """Subprocess that subscribes and reports results."""
-            channel = Channel(topic=topic)
-            received = []
+        sub_proc, result_queue = _start_subscriber(topic, 1.0, record="dict")
 
-            with channel:
-                def callback(message):
-                    received.append({"content": message.content.decode(), "topic": message.topic})
-                subscribe(channel, callback, timeout_seconds=1.0)
-
-            # Send results back to parent
-            result_queue.put(received)
-
-        # Create queue for results
-        result_queue = _mp.Queue()
-
-        # Start subscriber in subprocess
-        sub_proc = _mp.Process(target=subscriber_process, args=(topic, result_queue))
-        sub_proc.start()
-
-        # Publish messages
-        time.sleep(0.1)  # Ensure subscriber is ready
         publish(topic, b"Hello")
         publish(topic, b"World")
 
-        # Wait for subprocess to finish
         sub_proc.join()
-
-        # Get results from queue
-        received = result_queue.get(timeout=1)
+        _, _, received = result_queue.get(timeout=10)
 
         assert len(received) == 2
         assert received[0]["content"] == "Hello"
@@ -589,91 +572,35 @@ class TestIntegration(unittest.TestCase):
         """Test multiple subscribers to same topic."""
         topic = "test.integration.multi"
 
-        def subscriber_process(topic, result_queue, subscriber_id):
-            """Subprocess that subscribes and reports results."""
-            channel = Channel(topic=topic)
-            received = []
+        sub1_proc, queue1 = _start_subscriber(topic, 1.0, extra=1)
+        sub2_proc, queue2 = _start_subscriber(topic, 1.0, extra=2)
 
-            with channel:
-                def callback(message):
-                    received.append(message.content.decode())
-                subscribe(channel, callback, timeout_seconds=1.0)
+        count = publish(topic, b"Broadcast message")
 
-            # Send results back to parent
-            result_queue.put({"id": subscriber_id, "received": received})
-
-        # Create queue for results
-        result_queue = _mp.Queue()
-
-        # Start two subscribers in separate subprocesses
-        sub1_proc = _mp.Process(target=subscriber_process,
-                                            args=(topic, result_queue, 1))
-        sub2_proc = _mp.Process(target=subscriber_process,
-                                            args=(topic, result_queue, 2))
-        sub1_proc.start()
-        sub2_proc.start()
-
-        # Publish messages
-        time.sleep(0.1)
-        data = b"Broadcast message"
-        count = publish(topic, data)
-
-        # Wait for subprocesses
         sub1_proc.join()
         sub2_proc.join()
-
-        # Get results from queue
-        results = [result_queue.get(timeout=1) for _ in range(2)]
-        received1 = next(r["received"] for r in results if r["id"] == 1)
-        received2 = next(r["received"] for r in results if r["id"] == 2)
+        _, _, received1 = queue1.get(timeout=10)
+        _, _, received2 = queue2.get(timeout=10)
 
         # Both should receive the message
         assert count == 2
-        assert len(received1) >= 1
-        assert len(received2) >= 1
-        assert received1[0] == "Broadcast message"
-        assert received2[0] == "Broadcast message"
+        assert received1 == ["Broadcast message"]
+        assert received2 == ["Broadcast message"]
 
     def test_message_order(self):
-        """Test that messages are received in order."""
+        """Test that messages published one after the other are received in order."""
         topic = "test.integration.order"
 
-        def subscriber_process(topic, result_queue):
-            """Subprocess that subscribes and reports results in order."""
-            channel = Channel(topic=topic)
-            received = []
+        sub_proc, result_queue = _start_subscriber(topic, 1.5)
 
-            with channel:
-                def callback(message):
-                    received.append(message.content.decode())
-                subscribe(channel, callback, timeout_seconds=1.5)
-
-            # Send results back to parent
-            result_queue.put(received)
-
-        # Create queue for results
-        result_queue = _mp.Queue()
-
-        # Start subscriber in subprocess
-        sub_proc = _mp.Process(target=subscriber_process, args=(topic, result_queue))
-        sub_proc.start()
-
-        # Publish multiple messages
-        time.sleep(0.1)
         for i in range(10):
             publish(topic, f"message {i}".encode())
             time.sleep(0.01)  # Small delay between publishes
 
-        # Wait for subscriber
         sub_proc.join()
+        _, _, received = result_queue.get(timeout=10)
 
-        # Get results from queue
-        received = result_queue.get(timeout=1)
-
-        # Check order
-        assert len(received) == 10
-        for i in range(10):
-            assert received[i] == f"message {i}"
+        assert received == [f"message {i}" for i in range(10)]
 
     def test_publish_none_data_raises(self):
         """Test that publishing None as data raises TypeError."""
@@ -712,49 +639,20 @@ class TestIntegration(unittest.TestCase):
         topic1 = "test.integration.topic1"
         topic2 = "test.integration.topic2"
 
-        def subscriber_process(topic, result_queue, topic_id):
-            """Subprocess that subscribes and reports results."""
-            channel = Channel(topic=topic)
-            received = []
+        sub1_proc, queue1 = _start_subscriber(topic1, 0.5, record="dict", extra=1)
+        sub2_proc, queue2 = _start_subscriber(topic2, 0.5, record="dict", extra=2)
 
-            with channel:
-                def callback(message):
-                    received.append({"content": message.content.decode(), "topic": message.topic})
-                subscribe(channel, callback, timeout_seconds=0.5)
-
-            # Send results back to parent
-            result_queue.put({"topic_id": topic_id, "received": received})
-
-        # Create queue for results
-        result_queue = _mp.Queue()
-
-        # Start both subscribers in separate subprocesses
-        sub1_proc = _mp.Process(target=subscriber_process,
-                                            args=(topic1, result_queue, 1))
-        sub2_proc = _mp.Process(target=subscriber_process,
-                                            args=(topic2, result_queue, 2))
-        sub1_proc.start()
-        sub2_proc.start()
-
-        time.sleep(0.1)
-
-        # Publish to different topics
         publish(topic1, b"for topic 1")
         publish(topic2, b"for topic 2")
 
         sub1_proc.join()
         sub2_proc.join()
-
-        # Get results from queue
-        results = [result_queue.get(timeout=1) for _ in range(2)]
-        received1 = next(r["received"] for r in results if r["topic_id"] == 1)
-        received2 = next(r["received"] for r in results if r["topic_id"] == 2)
+        _, _, received1 = queue1.get(timeout=10)
+        _, _, received2 = queue2.get(timeout=10)
 
         # Each should only receive its own messages
-        assert len(received1) == 1
-        assert len(received2) == 1
-        assert received1[0]["content"] == "for topic 1"
-        assert received2[0]["content"] == "for topic 2"
+        assert [r["content"] for r in received1] == ["for topic 1"]
+        assert [r["content"] for r in received2] == ["for topic 2"]
 
 
 class TestIsMatching(unittest.TestCase):

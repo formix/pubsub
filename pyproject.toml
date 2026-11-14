@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "formix-pubsub"
-version = "1.0.2"
+version = "2.0.0"
 description = "A serverless Python publish-subscribe interprocess messaging library"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -20,6 +20,9 @@ keywords = ["pubsub", "messaging", "publish", "subscribe", "events"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
+    "Operating System :: POSIX :: Linux",
+    "Operating System :: MacOS",
+    "Operating System :: Microsoft :: Windows",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
